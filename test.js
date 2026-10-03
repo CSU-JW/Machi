@@ -39,8 +39,8 @@ function aiTurn(g) {
   g.rerolled = false;
 
   console.log(`\n----- ${p.name} 的回合，掷出 ${g.dice.sum} (${g.dice.values.join('+')}) -----`);
-  const events = E.settle(g, p.id, g.dice.sum);
-  events.forEach(e => console.log('  ' + e));
+  const result = E.settle(g, p.id, g.dice.sum);
+  result.events.forEach(e => console.log('  ' + e));
 
   // 购买：优先买当前点数对应的、买得起的卡
   for (const cid of Object.keys(CARDS)) {
