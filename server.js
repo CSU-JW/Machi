@@ -82,6 +82,8 @@ function createMachiServer(options = {}) {
       '.css': 'text/css; charset=utf-8',
       '.svg': 'image/svg+xml',
       '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
     };
     fs.readFile(filePath, (readError, data) => {
       if (readError) {
@@ -442,6 +444,7 @@ function createMachiServer(options = {}) {
     if (!member || member.identityKey !== identityKey(ws.identity) || member.socket !== ws) {
       return sendError(ws, '当前连接没有该玩家席位', 'INVALID_SEAT');
     }
+    if (game.gameOver) return sendError(ws, '游戏已经结束', 'GAME_OVER');
     if (ws.playerId !== game.current) return sendError(ws, '还没轮到你', 'NOT_YOUR_TURN');
 
     const player = game.players[game.current];

@@ -34,6 +34,8 @@ function createGame(playerNames) {
     builtThisTurn: false,
     cardPool: pool,
     pendingChoice: null,
+    gameOver: false,
+    winnerId: null,
     turnNumber: 1,          // 当前是第几回合
     log: [],                // 每条 { text, turn }
   };
@@ -329,6 +331,9 @@ function buildLandmark(g, landmarkId) {
   g.builtThisTurn = true;
   log(g, `${p.name} 建设 ${lm.name}，花费 ${lm.cost}`);
   if (isWin(p)) {
+    g.gameOver = true;
+    g.winnerId = p.id;
+    g.phase = 'finished';
     log(g, `🎉 ${p.name} 建成 4 个地标，获胜！`);
   }
   return { ok:true };
@@ -339,6 +344,7 @@ function isWin(p) {
 }
 
 function endTurn(g) {
+  if (g.gameOver) return { extraTurn:false, playerId:g.current, gameOver:true };
   const extraTurn = Boolean(g.extraTurn);
   const playerId = g.current;
   if (!extraTurn) g.current = (g.current + 1) % g.players.length;

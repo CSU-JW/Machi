@@ -41,3 +41,21 @@ test('农产品工厂同时按照麦田和果园数量计算收益', () => {
   assert.equal(player.money, 10);
   assert.ok(result.events.some(event => event.includes('农产品工厂')));
 });
+
+test('建成第四个地标后立即标记游戏结束和胜者', () => {
+  const game = E.createGame(['甲', '乙', '丙', '丁']);
+  const player = game.players[0];
+  player.money = 100;
+  player.landmarks.train = true;
+  player.landmarks.radio = true;
+  player.landmarks.mallC = true;
+  game.settled = true;
+  game.dice = { count: 2, values: [6, 6], sum: 12, firstCount: 2 };
+
+  assert.equal(E.buildLandmark(game, 'park').ok, true);
+  assert.equal(game.gameOver, true);
+  assert.equal(game.winnerId, 0);
+  assert.equal(game.phase, 'finished');
+  assert.equal(E.endTurn(game).gameOver, true);
+  assert.equal(game.current, 0);
+});

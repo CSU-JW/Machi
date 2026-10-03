@@ -130,6 +130,7 @@
       .account-info { width: 100%; justify-content: space-between; }
     }
   </style>
+  <link rel="stylesheet" href="style.css?v=20261003">
 </head>
 <body>
   <section id="auth" class="screen active">
@@ -191,7 +192,38 @@
     <div class="log" id="log"></div>
   </section>
 
+  <div id="cardModal" class="modal-layer" aria-hidden="true">
+    <div class="modal-dialog card-dialog" role="dialog" aria-modal="true" aria-labelledby="cardModalTitle">
+      <button id="cardModalClose" class="modal-close" type="button" aria-label="关闭">×</button>
+      <div class="detail-card">
+        <img id="cardModalArt" alt="">
+        <span id="cardModalPoints" class="detail-points"></span>
+        <span id="cardModalCost" class="detail-cost"></span>
+        <div class="detail-shade"></div>
+        <h3 id="cardModalTitle"></h3>
+      </div>
+      <p id="cardModalDescription" class="card-description"></p>
+      <p id="cardModalStatus" class="card-status"></p>
+      <div class="modal-actions">
+        <button id="cardModalCancel" class="secondary" type="button">返回</button>
+        <button id="cardConfirmButton" class="primary" type="button">确认购买</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="gameOverModal" class="modal-layer" aria-hidden="true">
+    <div class="modal-dialog game-over-dialog" role="dialog" aria-modal="true" aria-labelledby="gameOverTitle">
+      <div class="trophy">🏆</div>
+      <h2 id="gameOverTitle">游戏结束</h2>
+      <p id="gameOverText"></p>
+      <div class="modal-actions">
+        <button id="gameOverClose" class="secondary" type="button">查看最终城镇</button>
+        <button id="gameOverLobby" class="primary" type="button">返回大厅</button>
+      </div>
+    </div>
+  </div>
+
   <div id="connectionStatus">连接已断开，正在重连…</div>
-  <script src="client.js"></script>
+  <script src="client.js?v=20261003-ui"></script>
 </body>
 </html>
