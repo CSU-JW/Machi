@@ -197,23 +197,39 @@ wss.on('connection', (ws) => {
     const room = rooms[ws.roomId];
     if (!room) return;
 
-    // 被踢的旧连接，直接移除，不做离线标记
+    // 被踢的旧连接，直接移除，不做离线标记，也不检查房间销毁
     if (ws.playerId === -1) {
       room.clients = room.clients.filter(c => c !== ws);
       return;
     }
 
+    const roomId = ws.roomId;
+
     if (room.game) {
       const player = room.game.players.find(p => p.id === ws.playerId);
-      // 确认没有其他同一玩家的活跃连接
       const stillConnected = room.clients.some(
         c => c !== ws && c.playerId === ws.playerId && c.readyState === 1
       );
       if (player && !stillConnected) player.connected = false;
     }
     room.clients = room.clients.filter(c => c !== ws);
-    console.log(`[leave] 房间 ${ws.roomId}，玩家 ${ws.playerId} 离线，剩余连接 ${room.clients.length}`);
-    broadcast(ws.roomId);
+    console.log(`[leave] 房间 ${roomId}，玩家 ${ws.playerId} 离线，剩余连接 ${room.clients.length}`);
+
+    // 未开局且无人 → 销毁
+    if (!room.game && room.clients.length === 0) {
+      console.log(`[destroy] 房间 ${roomId} 未开局且无人，销毁`);
+      delete rooms[roomId];
+      return;
+    }
+
+    // 全员离线 → 销毁
+    if (room.game && room.game.players.every(p => p.connected === false)) {
+      console.log(`[destroy] 房间 ${roomId} 全员离线，销毁`);
+      delete rooms[roomId];
+      return;
+    }
+
+    broadcast(roomId);
   });
 });
 
