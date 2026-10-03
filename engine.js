@@ -1,5 +1,6 @@
 // engine.js
 const { CARDS, LANDMARKS, UNIQUE_CARDS, SIX_CARDS, createCardPool } = require('./cards');
+const crypto = require('crypto');
 
 // ---------- 初始化 ----------
 function createGame(playerNames) {
@@ -11,6 +12,7 @@ function createGame(playerNames) {
     money: 3,
     cards: { wheat: 1, bakery: 1 },
     landmarks: { train:false, radio:false, mallC:false, park:false },
+    connected: true,
   }));
 
   for (const p of players) {
@@ -22,20 +24,23 @@ function createGame(playerNames) {
   return {
     players,
     current: 0,
-    phase: 'roll',          // roll | settle | buy | build | end
-    dice: null,             // { count, values, sum, firstCount }
+    phase: 'roll',
+    dice: null,
     rolled: false,
-    settled: false,         // 本次掷骰是否已结算
+    settled: false,
     rerolled: false,
     boughtThisTurn: false,
     cardPool: pool,
-    pendingChoice: null,    // { type: 'reroll' } | { type:'stadium' } | ...
-    log: [],
+    pendingChoice: null,
+    turnNumber: 1,          // 当前是第几回合
+    log: [],                // 每条 { text, turn }
   };
 }
 
 // ---------- 工具 ----------
-function log(g, msg) { g.log.push(msg); }
+function log(g, text) {
+  g.log.push({ text, turn: g.turnNumber });
+}
 function playerHasLandmark(p, id) { return p.landmarks[id] === true; }
 function playerHasCard(p, id) { return (p.cards[id] || 0) > 0; }
 function cardCount(p, id) { return p.cards[id] || 0; }
@@ -55,7 +60,6 @@ function rollDice(count) {
   return { count, values, sum };
 }
 
-// 是否还能重掷（已掷、未结算、未重掷过、有对应地标）
 function canReroll(g, p) {
   if (!g.dice || g.settled || g.rerolled) return false;
   const first = g.dice.firstCount;
@@ -64,8 +68,7 @@ function canReroll(g, p) {
   return false;
 }
 
-// ---------- 结算一次掷骰 ----------
-// 返回 { events, needChoice }
+// ---------- 结算 ----------
 function settle(g, rollerId, sum) {
   const events = [];
   const roller = g.players[rollerId];
@@ -107,7 +110,6 @@ function settle(g, rollerId, sum) {
     }
   }
 
-  // 6 点特殊卡：逐个询问是否发动
   let needChoice = null;
   if (sum === 6) {
     needChoice = buildSixChoice(g, rollerId);
@@ -119,63 +121,34 @@ function settle(g, rollerId, sum) {
   return { events, needChoice };
 }
 
-// 构建 6 点卡的"询问链"：先问体育馆，再问电视塔，再问商场
-// 返回第一个要问的 choice，或 null（没有 6 点卡可发动）
 function buildSixChoice(g, rollerId) {
   const roller = g.players[rollerId];
-  const hasStadium = playerHasCard(roller, 'stadium');
-  const hasTv = playerHasCard(roller, 'tvStation');
-  const hasMall = playerHasCard(roller, 'mall');
-
-  if (hasStadium) return { type: 'askStadium', rollerId };
-  if (hasTv) return { type: 'askTv', rollerId };
-  if (hasMall) return { type: 'askMall', rollerId };
+  if (playerHasCard(roller, 'stadium')) return { type: 'askStadium', rollerId };
+  if (playerHasCard(roller, 'tvStation')) return { type: 'askTv', rollerId };
+  if (playerHasCard(roller, 'mall')) {
+    const hasMyCard = Object.keys(roller.cards).some(id => roller.cards[id] > 0 && !SIX_CARDS.includes(id));
+    const hasTargetCard = g.players.some(p => p.id !== rollerId && Object.keys(p.cards).some(id => p.cards[id] > 0 && !SIX_CARDS.includes(id)));
+    if (hasMyCard && hasTargetCard) return { type: 'askMall', rollerId };
+  }
   return null;
 }
 
-// 某玩家是否有"可用的"6 点卡（用于判断是否还要继续问）
-function hasUsableSix(g, rollerId) {
-  const roller = g.players[rollerId];
-  if (playerHasCard(roller, 'stadium')) return true;
-  if (playerHasCard(roller, 'tvStation')) return true;
-  if (playerHasCard(roller, 'mall')) {
-    // 商场要求自己 + 至少一个对手有非 6 点卡
-    const hasMyCard = Object.keys(roller.cards).some(id =>
-      roller.cards[id] > 0 && !SIX_CARDS.includes(id)
-    );
-    const hasTargetCard = g.players.some(p =>
-      p.id !== rollerId && Object.keys(p.cards).some(id =>
-        p.cards[id] > 0 && !SIX_CARDS.includes(id)
-      )
-    );
-    return hasMyCard && hasTargetCard;
-  }
-  return false;
-}
-
-// ---------- 处理玩家选择 ----------
-// choice: { type, ... }
 function handleChoice(g, rollerId, choice) {
   const roller = g.players[rollerId];
   const events = [];
 
-  // ============ 重掷选择 ============
   if (choice.type === 'reroll') {
     if (!canReroll(g, roller)) return { ok:false, error:'不能重掷' };
     let rerollCount = 1;
-    if (roller.landmarks.park) {
-      rerollCount = choice.count === 2 ? 2 : 1;
-    }
+    if (roller.landmarks.park) rerollCount = choice.count === 2 ? 2 : 1;
     g.dice = { ...rollDice(rerollCount), firstCount: g.dice.firstCount };
     g.rerolled = true;
-    // 重掷后强制结算
     const result = settle(g, rollerId, g.dice.sum);
     g.settled = true;
     events.push(...result.events);
     return { ok:true, events, needChoice: result.needChoice };
   }
 
-  // ============ 接受点数（不重掷） ============
   if (choice.type === 'accept') {
     if (g.settled) return { ok:false, error:'已结算' };
     const result = settle(g, rollerId, g.dice.sum);
@@ -184,7 +157,6 @@ function handleChoice(g, rollerId, choice) {
     return { ok:true, events, needChoice: result.needChoice };
   }
 
-  // ============ 体育馆：发动 or 跳过 ============
   if (choice.type === 'askStadium') {
     if (choice.activate) {
       if (!playerHasCard(roller, 'stadium')) return { ok:false, error:'没有体育馆' };
@@ -197,23 +169,16 @@ function handleChoice(g, rollerId, choice) {
     } else {
       events.push(`${roller.name} 跳过体育馆`);
     }
-    // 继续问电视塔
-    const next = nextSixChoice(g, rollerId, 'stadium');
-    return { ok:true, events, needChoice: next };
+    return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'stadium') };
   }
 
-  // ============ 电视塔：发动（选人） or 跳过 ============
   if (choice.type === 'askTv') {
     if (choice.activate) {
       if (!playerHasCard(roller, 'tvStation')) return { ok:false, error:'没有电视塔' };
-      return {
-        ok:true, events,
-        needChoice: { type: 'tvPickTarget', rollerId }
-      };
+      return { ok:true, events, needChoice: { type: 'tvPickTarget', rollerId } };
     } else {
       events.push(`${roller.name} 跳过电视塔`);
-      const next = nextSixChoice(g, rollerId, 'tvStation');
-      return { ok:true, events, needChoice: next };
+      return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'tvStation') };
     }
   }
 
@@ -223,31 +188,19 @@ function handleChoice(g, rollerId, choice) {
     target.money -= 5;
     roller.money += 5;
     events.push(`${roller.name} 电视塔：向 ${target.name} 收 5`);
-    const next = nextSixChoice(g, rollerId, 'tvStation');
-    return { ok:true, events, needChoice: next };
+    return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'tvStation') };
   }
 
-  // ============ 商场：发动 or 跳过 ============
   if (choice.type === 'askMall') {
     if (choice.activate) {
       if (!playerHasCard(roller, 'mall')) return { ok:false, error:'没有商场' };
-      // 检查是否可交换
-      const hasMyCard = Object.keys(roller.cards).some(id =>
-        roller.cards[id] > 0 && !SIX_CARDS.includes(id)
-      );
-      const hasTargetCard = g.players.some(p =>
-        p.id !== rollerId && Object.keys(p.cards).some(id =>
-          p.cards[id] > 0 && !SIX_CARDS.includes(id)
-        )
-      );
+      const hasMyCard = Object.keys(roller.cards).some(id => roller.cards[id] > 0 && !SIX_CARDS.includes(id));
+      const hasTargetCard = g.players.some(p => p.id !== rollerId && Object.keys(p.cards).some(id => p.cards[id] > 0 && !SIX_CARDS.includes(id)));
       if (!hasMyCard || !hasTargetCard) {
         events.push(`${roller.name} 商场：无可交换的卡，无法发动`);
         return { ok:true, events, needChoice: null };
       }
-      return {
-        ok:true, events,
-        needChoice: { type: 'mallPickTarget', rollerId }
-      };
+      return { ok:true, events, needChoice: { type: 'mallPickTarget', rollerId } };
     } else {
       events.push(`${roller.name} 跳过商场`);
       return { ok:true, events, needChoice: null };
@@ -257,14 +210,9 @@ function handleChoice(g, rollerId, choice) {
   if (choice.type === 'mallPickTarget') {
     const target = g.players.find(p => p.id === choice.targetId);
     if (!target || target.id === rollerId) return { ok:false, error:'无效目标' };
-    const targetCards = Object.keys(target.cards).filter(id =>
-      target.cards[id] > 0 && !SIX_CARDS.includes(id)
-    );
+    const targetCards = Object.keys(target.cards).filter(id => target.cards[id] > 0 && !SIX_CARDS.includes(id));
     if (targetCards.length === 0) return { ok:false, error:'该玩家没有可交换的卡' };
-    return {
-      ok:true, events,
-      needChoice: { type: 'mallPickCards', rollerId, targetId: target.id }
-    };
+    return { ok:true, events, needChoice: { type: 'mallPickCards', rollerId, targetId: target.id } };
   }
 
   if (choice.type === 'mallPickCards') {
@@ -272,19 +220,12 @@ function handleChoice(g, rollerId, choice) {
     if (!target) return { ok:false, error:'无效目标' };
     const myCardId = choice.myCardId;
     const targetCardId = choice.targetCardId;
-
-    if (!roller.cards[myCardId] || roller.cards[myCardId] <= 0 || SIX_CARDS.includes(myCardId)) {
-      return { ok:false, error:'你选择的自己的卡无效' };
-    }
-    if (!target.cards[targetCardId] || target.cards[targetCardId] <= 0 || SIX_CARDS.includes(targetCardId)) {
-      return { ok:false, error:'你选择的对方的卡无效' };
-    }
-
+    if (!roller.cards[myCardId] || roller.cards[myCardId] <= 0 || SIX_CARDS.includes(myCardId)) return { ok:false, error:'你选择的自己的卡无效' };
+    if (!target.cards[targetCardId] || target.cards[targetCardId] <= 0 || SIX_CARDS.includes(targetCardId)) return { ok:false, error:'你选择的对方的卡无效' };
     roller.cards[myCardId] -= 1;
     target.cards[myCardId] = (target.cards[myCardId] || 0) + 1;
     target.cards[targetCardId] -= 1;
     roller.cards[targetCardId] = (roller.cards[targetCardId] || 0) + 1;
-
     events.push(`${roller.name} 用 ${CARDS[myCardId].name} 交换了 ${target.name} 的 ${CARDS[targetCardId].name}`);
     return { ok:true, events, needChoice: null };
   }
@@ -292,43 +233,25 @@ function handleChoice(g, rollerId, choice) {
   return { ok:false, error:'未知的选择类型' };
 }
 
-// 在 6 点询问链中，找到"下一个要问的"
-// after: 刚处理完哪个（'stadium' | 'tvStation' | 'mall'）
 function nextSixChoice(g, rollerId, after) {
   const roller = g.players[rollerId];
-
   if (after === 'stadium') {
     if (playerHasCard(roller, 'tvStation')) return { type: 'askTv', rollerId };
     if (playerHasCard(roller, 'mall')) {
-      // 商场可用性检查
-      const hasMyCard = Object.keys(roller.cards).some(id =>
-        roller.cards[id] > 0 && !SIX_CARDS.includes(id)
-      );
-      const hasTargetCard = g.players.some(p =>
-        p.id !== rollerId && Object.keys(p.cards).some(id =>
-          p.cards[id] > 0 && !SIX_CARDS.includes(id)
-        )
-      );
+      const hasMyCard = Object.keys(roller.cards).some(id => roller.cards[id] > 0 && !SIX_CARDS.includes(id));
+      const hasTargetCard = g.players.some(p => p.id !== rollerId && Object.keys(p.cards).some(id => p.cards[id] > 0 && !SIX_CARDS.includes(id)));
       if (hasMyCard && hasTargetCard) return { type: 'askMall', rollerId };
     }
     return null;
   }
-
   if (after === 'tvStation') {
     if (playerHasCard(roller, 'mall')) {
-      const hasMyCard = Object.keys(roller.cards).some(id =>
-        roller.cards[id] > 0 && !SIX_CARDS.includes(id)
-      );
-      const hasTargetCard = g.players.some(p =>
-        p.id !== rollerId && Object.keys(p.cards).some(id =>
-          p.cards[id] > 0 && !SIX_CARDS.includes(id)
-        )
-      );
+      const hasMyCard = Object.keys(roller.cards).some(id => roller.cards[id] > 0 && !SIX_CARDS.includes(id));
+      const hasTargetCard = g.players.some(p => p.id !== rollerId && Object.keys(p.cards).some(id => p.cards[id] > 0 && !SIX_CARDS.includes(id)));
       if (hasMyCard && hasTargetCard) return { type: 'askMall', rollerId };
     }
     return null;
   }
-
   return null;
 }
 
@@ -343,12 +266,8 @@ function canBuy(g, cardId) {
   if (!g.dice) return { ok:false, reason:'尚未掷骰' };
   if (!card.points.includes(g.dice.sum)) return { ok:false, reason:'点数不匹配' };
   if (p.money < card.cost) return { ok:false, reason:'钱不够' };
-  if (UNIQUE_CARDS.includes(cardId) && playerHasCard(p, cardId)) {
-    return { ok:false, reason:'该 6 点卡已拥有' };
-  }
-  if ((g.cardPool[cardId] || 0) <= 0) {
-    return { ok:false, reason:'该卡已被买断' };
-  }
+  if (UNIQUE_CARDS.includes(cardId) && playerHasCard(p, cardId)) return { ok:false, reason:'该 6 点卡已拥有' };
+  if ((g.cardPool[cardId] || 0) <= 0) return { ok:false, reason:'该卡已被买断' };
   return { ok:true };
 }
 
@@ -365,7 +284,7 @@ function buyCard(g, cardId) {
   return { ok:true };
 }
 
-// ---------- 建设地标 ----------
+// ---------- 建设 ----------
 function canBuild(g, landmarkId) {
   const p = g.players[g.current];
   const lm = LANDMARKS[landmarkId];

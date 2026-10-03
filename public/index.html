@@ -4,25 +4,66 @@
   <meta charset="UTF-8">
   <title>桌游联机</title>
   <style>
-    body { font-family: sans-serif; margin: 0; padding: 16px; background: #f5f5f5; }
+    body { font-family: sans-serif; margin: 0; padding: 16px; background: #f0f2f5; }
     #join { max-width: 320px; margin: 80px auto; text-align: center; }
-    #join input { padding: 8px; font-size: 16px; width: 200px; margin: 4px 0; display: block; margin-left: auto; margin-right: auto; }
+    #join input { padding: 8px; font-size: 16px; width: 200px; }
     #join button { padding: 8px 16px; font-size: 16px; margin-top: 12px; cursor: pointer; }
-    #game { display: none; }
+    #game { display: none; max-width: 1100px; margin: 0 auto; }
+
+    .turn-banner {
+      font-size: 22px; font-weight: bold; text-align: center;
+      padding: 12px; margin-bottom: 16px; border-radius: 8px;
+      background: #fff; border: 2px solid #4caf50;
+    }
+    .turn-banner.me { background: #e8f5e9; }
+
+    .dice-area {
+      text-align: center; margin: 12px 0; min-height: 50px;
+    }
+    #dice { font-size: 32px; font-weight: bold; display: inline-block; }
+    #dice.rolling { animation: shake 0.1s infinite; }
+    @keyframes shake {
+      0% { transform: translate(0,0); }
+      25% { transform: translate(-3px,2px); }
+      50% { transform: translate(3px,-2px); }
+      75% { transform: translate(-2px,-3px); }
+      100% { transform: translate(2px,3px); }
+    }
+
     .players { display: flex; gap: 12px; flex-wrap: wrap; }
-    .player { flex: 1; min-width: 220px; background: white; border-radius: 8px; padding: 12px;
-              border: 2px solid #ddd; }
-    .player.active { border-color: #4caf50; box-shadow: 0 0 8px #4caf5088; }
-    .player h3 { margin: 0 0 8px; }
+    .player {
+      flex: 1; min-width: 240px; background: white; border-radius: 8px; padding: 12px;
+      border: 2px solid #ddd; transition: all 0.2s;
+    }
+    .player.active { border-color: #4caf50; box-shadow: 0 0 12px #4caf5077; transform: translateY(-2px); }
+    .player.offline { opacity: 0.55; }
+    .player h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
+    .badge-offline { font-size: 11px; background: #e74c3c; color: white; padding: 2px 6px; border-radius: 4px; }
     .money { font-size: 20px; font-weight: bold; color: #e67e22; }
-    .cards { font-size: 13px; color: #555; margin: 6px 0; line-height: 1.6; }
-    .landmarks { font-size: 13px; color: #2980b9; line-height: 1.6; }
+    .cards { font-size: 13px; margin: 8px 0; line-height: 1.9; }
+    .landmarks { font-size: 13px; line-height: 1.9; }
+
+    .tag {
+      display: inline-block; padding: 2px 8px; margin: 2px; border-radius: 12px;
+      font-size: 12px; font-weight: bold;
+    }
+    .tag-any    { background: #d4edda; color: #155724; }  /* 全场触发：绿 */
+    .tag-self   { background: #cce5ff; color: #004085; }  /* 自己触发：蓝 */
+    .tag-other  { background: #f8d7da; color: #721c24; }  /* 向他人收：红 */
+    .tag-six    { background: #fff3cd; color: #856404; }  /* 6点：黄 */
+    .tag-landmark { background: #e2d9f3; color: #4a2c7a; } /* 地标：紫 */
+
     .actions { margin: 16px 0; padding: 12px; background: white; border-radius: 8px; min-height: 40px; }
     .actions button { padding: 6px 12px; margin: 4px; font-size: 14px; cursor: pointer; }
     .actions button:disabled { opacity: 0.4; cursor: not-allowed; }
-    .log { background: #fff; border-radius: 8px; padding: 12px; height: 200px; overflow-y: auto;
-           font-size: 13px; font-family: monospace; line-height: 1.7; }
-    #dice { font-size: 28px; font-weight: bold; margin: 12px 0; min-height: 36px; }
+
+    .log {
+      background: #fff; border-radius: 8px; padding: 12px; height: 240px; overflow-y: auto;
+      font-size: 13px; font-family: monospace; line-height: 1.8;
+    }
+    .log .turn-sep {
+      color: #888; border-top: 1px dashed #ccc; margin: 6px 0; padding-top: 4px; font-weight: bold;
+    }
     #roomInfo { font-size: 14px; color: #888; font-weight: normal; }
   </style>
 </head>
@@ -30,15 +71,16 @@
 
 <div id="join">
   <h2>加入游戏</h2>
-  <input id="nameInput" placeholder="你的名字" maxlength="8">
-  <input id="roomInput" placeholder="房间号（留空自动匹配）" maxlength="8">
-  <button onclick="join()">进入</button>
+  <input id="nameInput" placeholder="输入你的名字" maxlength="8">
+  <br>
+  <button onclick="join()">进入房间</button>
   <p id="joinMsg"></p>
 </div>
 
 <div id="game">
   <h2>桌游联机 <span id="roomInfo"></span></h2>
-  <div id="dice"></div>
+  <div class="turn-banner" id="turnBanner"></div>
+  <div class="dice-area"><span id="dice"></span></div>
   <div class="players" id="players"></div>
   <div class="actions" id="actions"></div>
   <div class="log" id="log"></div>

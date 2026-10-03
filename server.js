@@ -2,6 +2,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const E = require('./engine');
 const { CARDS, LANDMARKS } = require('./cards');
@@ -43,52 +44,69 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
   ws.roomId = null;
   ws.playerId = null;
+  ws.token = null;
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
-    // ================= 加入房间 =================
+    // ================= 加入 / 重连 =================
     if (msg.type === 'join') {
       const name = (msg.name || '玩家').slice(0, 8);
-      const wantRoom = (msg.roomId || '').trim();
+      const oldToken = msg.token;
 
-      let roomId = null;
-      if (wantRoom) {
-        // 指定房间号
-        if (!rooms[wantRoom]) {
-          rooms[wantRoom] = { game: null, clients: [], names: [] };
-        }
-        const room = rooms[wantRoom];
-        if (room.clients.length >= 4) {
-          send(ws, { type: 'error', msg: '房间已满' });
-          ws.close();
-          return;
-        }
-        roomId = wantRoom;
-      } else {
-        // 没指定：找一个没满的房间，没有就新建
-        roomId = Object.keys(rooms).find(id => rooms[id].clients.length < 4);
-        if (!roomId) {
-          roomId = String(nextRoomId++);
-          rooms[roomId] = { game: null, clients: [], names: [] };
+      // 尝试重连：token 匹配且房间还在
+      if (oldToken) {
+        for (const rid of Object.keys(rooms)) {
+          const room = rooms[rid];
+          if (!room.game) continue;
+          const player = room.game.players.find(p => p.token === oldToken);
+          if (player) {
+            // 替换旧的 ws
+            room.clients = room.clients.filter(c => c.playerId !== player.id);
+            ws.roomId = rid;
+            ws.playerId = player.id;
+            ws.token = oldToken;
+            room.clients.push(ws);
+            player.connected = true;
+            console.log(`[reconnect] 房间 ${rid}，玩家 ${player.name} 重连`);
+            send(ws, { type: 'joined', roomId: rid, playerId: player.id, name: player.name, token: oldToken, reconnect: true });
+            broadcast(rid);
+            return;
+          }
         }
       }
 
+      // 新玩家加入
+      let roomId = Object.keys(rooms).find(id => {
+        const r = rooms[id];
+        return r.clients.length < 4 && (!r.game || r.game.players.some(p => !p.connected) === false);
+      });
+      // 简单策略：找人数 < 4 的房间
+      roomId = Object.keys(rooms).find(id => rooms[id].clients.length < 4);
+      if (!roomId) {
+        roomId = String(nextRoomId++);
+        rooms[roomId] = { game: null, clients: [], names: [], tokens: [] };
+      }
       const room = rooms[roomId];
       const playerId = room.clients.length;
+      const token = crypto.randomBytes(16).toString('hex');
 
       room.clients.push(ws);
       room.names.push(name);
+      room.tokens.push(token);
       ws.roomId = roomId;
       ws.playerId = playerId;
+      ws.token = token;
 
       console.log(`[join] 房间 ${roomId}，玩家 ${name}(id=${playerId})，当前人数 ${room.clients.length}`);
-      send(ws, { type: 'joined', roomId, playerId, name });
+      send(ws, { type: 'joined', roomId, playerId, name, token });
 
       if (room.clients.length === 4) {
         console.log(`[start] 房间 ${roomId} 开局！`);
         room.game = E.createGame(room.names);
+        // 给每个玩家绑定 token
+        room.game.players.forEach((p, i) => { p.token = room.tokens[i]; });
         broadcast(roomId);
       } else {
         for (const c of room.clients) {
@@ -117,12 +135,11 @@ wss.on('connection', (ws) => {
       g.dice = { ...E.rollDice(count), firstCount: count };
       g.rerolled = false;
       g.settled = false;
-
       if (E.canReroll(g, p)) {
         g.pendingChoice = { type: 'askReroll', rollerId: p.id };
       } else {
         const result = E.settle(g, p.id, g.dice.sum);
-        g.log.push(...result.events);
+        g.log.push(...result.events.map(t => ({ text: t, turn: g.turnNumber })));
         g.settled = true;
         if (result.needChoice) g.pendingChoice = result.needChoice;
       }
@@ -130,12 +147,12 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // ---- 处理选择 ----
+    // ---- 选择 ----
     if (msg.type === 'choice') {
       if (!g.pendingChoice) { send(ws, { type: 'error', msg: '当前没有待选择' }); return; }
       const result = E.handleChoice(g, p.id, msg.choice);
       if (!result.ok) { send(ws, { type: 'error', msg: result.error }); return; }
-      g.log.push(...result.events);
+      g.log.push(...result.events.map(t => ({ text: t, turn: g.turnNumber })));
       g.pendingChoice = result.needChoice || null;
       broadcast(ws.roomId);
       return;
@@ -149,7 +166,7 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // ---- 建设地标 ----
+    // ---- 建设 ----
     if (msg.type === 'build') {
       const r = E.buildLandmark(g, msg.landmarkId);
       if (!r.ok) send(ws, { type: 'error', msg: r.reason });
@@ -168,6 +185,7 @@ wss.on('connection', (ws) => {
       g.boughtThisTurn = false;
       g.pendingChoice = null;
       g.phase = 'roll';
+      g.turnNumber += 1;   // 回合数 +1
       broadcast(ws.roomId);
       return;
     }
@@ -176,9 +194,16 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     const room = rooms[ws.roomId];
     if (!room) return;
+    // 标记该玩家离线，但保留房间
+    if (room.game) {
+      const player = room.game.players.find(p => p.id === ws.playerId);
+      if (player) player.connected = false;
+    }
     room.clients = room.clients.filter(c => c !== ws);
-    console.log(`[leave] 房间 ${ws.roomId}，剩余 ${room.clients.length} 人`);
-    if (room.clients.length === 0) delete rooms[ws.roomId];
+    console.log(`[leave] 房间 ${ws.roomId}，玩家 ${ws.playerId} 离线，剩余连接 ${room.clients.length}`);
+    // 广播状态，让其他人看到"离线"
+    broadcast(ws.roomId);
+    // 如果所有人都离线，可以保留房间一段时间；这里简化：不删
   });
 });
 
