@@ -277,7 +277,7 @@ const CARD_POINTS = {
 };
 const CARD_COSTS = {
   wheat:1, ranch:2, bakery:2, cafe:2, convenience:2, forest:3,
-  stadium:6, tvStation:8, mall:7, dairy:3, orchard:3, mine:3,
+  stadium:6, tvStation:6, mall:7, dairy:3, orchard:3, mine:3,
   teaHouse:3, craft:3, farm:2,
 };
 const CARD_TYPE = {
@@ -287,7 +287,7 @@ const CARD_TYPE = {
 };
 const SIX_CARDS = ['stadium','tvStation','mall'];
 const LANDMARK_NAMES = { train:'火车站', radio:'广播中心', mallC:'商业中心', park:'游乐园' };
-const LANDMARK_COSTS = { train:4, radio:16, mallC:10, park:22 };
+const LANDMARK_COSTS = { train:4, radio:16, mallC:13, park:22 };
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, character => ({
@@ -325,7 +325,8 @@ function render() {
   const banner = document.getElementById('turnBanner');
   const currentPlayer = game.players[game.current];
   if (me && game.current === me.id) {
-    banner.textContent = `⚡ 轮到你了（第 ${game.turnNumber} 回合）`;
+    const extraTurnText = game.extraTurn ? ' · 广播中心已触发，结束后再行动一次' : '';
+    banner.textContent = `⚡ 轮到你了（第 ${game.turnNumber} 回合）${extraTurnText}`;
     banner.classList.add('me');
   } else {
     banner.textContent = `⏳ 轮到 ${currentPlayer.name}（第 ${game.turnNumber} 回合）`;
@@ -392,8 +393,15 @@ function render() {
         note.style.cssText = 'color:#888;margin-right:8px';
         actions.appendChild(note);
       }
-      for (const id of Object.keys(LANDMARK_NAMES)) {
-        if (!me.landmarks[id]) addAction(actions, `建 ${LANDMARK_NAMES[id]} (${LANDMARK_COSTS[id]}元)`, { type: 'build', landmarkId: id });
+      if (!game.builtThisTurn) {
+        for (const id of Object.keys(LANDMARK_NAMES)) {
+          if (!me.landmarks[id]) addAction(actions, `建 ${LANDMARK_NAMES[id]} (${LANDMARK_COSTS[id]}元)`, { type: 'build', landmarkId: id });
+        }
+      } else {
+        const buildNote = document.createElement('span');
+        buildNote.textContent = '（本回合已建设过地标）';
+        buildNote.style.cssText = 'color:#888;margin-right:8px';
+        actions.appendChild(buildNote);
       }
       addAction(actions, '结束回合', { type: 'endTurn' });
     } else actions.textContent = '等待结算…';
@@ -421,9 +429,9 @@ function renderPendingChoice(container, me) {
   if (choice.type === 'askReroll') {
     addTip(container, `你掷出了 ${game.dice.sum}，是否接受？`);
     addAction(container, '接受点数，结算', { type:'choice', choice:{ type:'accept' } });
-    if (me.landmarks.radio || (me.landmarks.park && game.dice.firstCount === 2)) {
+    if (me.landmarks.park) {
       addAction(container, '重掷 1 个骰子', { type:'choice', choice:{ type:'reroll', count:1 } });
-      if (me.landmarks.park && game.dice.firstCount === 2) addAction(container, '重掷 2 个骰子', { type:'choice', choice:{ type:'reroll', count:2 } });
+      if (me.landmarks.train) addAction(container, '重掷 2 个骰子', { type:'choice', choice:{ type:'reroll', count:2 } });
     }
     return;
   }

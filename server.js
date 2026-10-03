@@ -493,14 +493,7 @@ function createMachiServer(options = {}) {
         broadcastGame(room);
         return;
       }
-      game.current = (game.current + 1) % MAX_PLAYERS;
-      game.dice = null;
-      game.rerolled = false;
-      game.settled = false;
-      game.boughtThisTurn = false;
-      game.pendingChoice = null;
-      game.phase = 'roll';
-      game.turnNumber += 1;
+      E.endTurn(game);
       broadcastGame(room);
     }
   }

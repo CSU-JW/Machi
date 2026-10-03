@@ -29,7 +29,9 @@ function createGame(playerNames) {
     rolled: false,
     settled: false,
     rerolled: false,
+    extraTurn: false,
     boughtThisTurn: false,
+    builtThisTurn: false,
     cardPool: pool,
     pendingChoice: null,
     turnNumber: 1,          // 当前是第几回合
@@ -62,10 +64,29 @@ function rollDice(count) {
 
 function canReroll(g, p) {
   if (!g.dice || g.settled || g.rerolled) return false;
-  const first = g.dice.firstCount;
-  if (playerHasLandmark(p, 'radio')) return true;
-  if (playerHasLandmark(p, 'park') && first === 2) return true;
-  return false;
+  return playerHasLandmark(p, 'park');
+}
+
+function transferUpTo(from, to, requestedAmount) {
+  const available = Math.max(0, from.money);
+  const amount = Math.min(requestedAmount, available);
+  from.money = Math.max(0, from.money - amount);
+  to.money += amount;
+  return amount;
+}
+
+function updateExtraTurn(g, roller, events) {
+  const values = g.dice && Array.isArray(g.dice.values) ? g.dice.values : [];
+  g.extraTurn = Boolean(
+    playerHasLandmark(roller, 'radio')
+    && g.dice
+    && g.dice.count === 2
+    && values.length === 2
+    && values[0] === values[1]
+  );
+  if (g.extraTurn) {
+    events.push(`${roller.name} 的广播中心触发：掷出对子，本回合结束后获得一个额外回合`);
+  }
 }
 
 // ---------- 结算 ----------
@@ -102,13 +123,14 @@ function settle(g, rollerId, sum) {
       } else if (card.trigger === 'other') {
         if (owner.id === rollerId) continue;
         const bonus = bonusFor(owner, cardId);
-        const pay = (card.effect.amount + bonus) * n;
-        roller.money -= pay;
-        owner.money += pay;
-        events.push(`${roller.name} 向 ${owner.name} 支付 ${pay}（${card.name} x${n}）`);
+        const requested = (card.effect.amount + bonus) * n;
+        const paid = transferUpTo(roller, owner, requested);
+        events.push(`${roller.name} 向 ${owner.name} 支付 ${paid}（${card.name} x${n}，应付 ${requested}）`);
       }
     }
   }
+
+  updateExtraTurn(g, roller, events);
 
   let needChoice = null;
   if (sum === 6) {
@@ -139,8 +161,10 @@ function handleChoice(g, rollerId, choice) {
 
   if (choice.type === 'reroll') {
     if (!canReroll(g, roller)) return { ok:false, error:'不能重掷' };
-    let rerollCount = 1;
-    if (roller.landmarks.park) rerollCount = choice.count === 2 ? 2 : 1;
+    const rerollCount = choice.count === 2 ? 2 : 1;
+    if (rerollCount === 2 && !roller.landmarks.train) {
+      return { ok:false, error:'未建成火车站，不能投掷2个骰子' };
+    }
     g.dice = { ...rollDice(rerollCount), firstCount: g.dice.firstCount };
     g.rerolled = true;
     const result = settle(g, rollerId, g.dice.sum);
@@ -162,9 +186,8 @@ function handleChoice(g, rollerId, choice) {
       if (!playerHasCard(roller, 'stadium')) return { ok:false, error:'没有体育馆' };
       for (const p of g.players) {
         if (p.id === rollerId) continue;
-        p.money -= 2;
-        roller.money += 2;
-        events.push(`${roller.name} 体育馆：向 ${p.name} 收 2`);
+        const paid = transferUpTo(p, roller, 2);
+        events.push(`${roller.name} 体育馆：向 ${p.name} 收 ${paid}`);
       }
     } else {
       events.push(`${roller.name} 跳过体育馆`);
@@ -185,9 +208,8 @@ function handleChoice(g, rollerId, choice) {
   if (choice.type === 'tvPickTarget') {
     const target = g.players.find(p => p.id === choice.targetId);
     if (!target || target.id === rollerId) return { ok:false, error:'无效目标' };
-    target.money -= 5;
-    roller.money += 5;
-    events.push(`${roller.name} 电视塔：向 ${target.name} 收 5`);
+    const paid = transferUpTo(target, roller, 5);
+    events.push(`${roller.name} 电视塔：向 ${target.name} 收 ${paid}`);
     return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'tvStation') };
   }
 
@@ -291,6 +313,7 @@ function canBuild(g, landmarkId) {
   if (!lm) return { ok:false, reason:'无此地标' };
   if (g.pendingChoice) return { ok:false, reason:'还有选择未完成' };
   if (!g.settled) return { ok:false, reason:'尚未结算' };
+  if (g.builtThisTurn) return { ok:false, reason:'本回合已建设过地标' };
   if (p.landmarks[landmarkId]) return { ok:false, reason:'已建成' };
   if (p.money < lm.cost) return { ok:false, reason:'钱不够' };
   return { ok:true };
@@ -303,6 +326,7 @@ function buildLandmark(g, landmarkId) {
   const lm = LANDMARKS[landmarkId];
   p.money -= lm.cost;
   p.landmarks[landmarkId] = true;
+  g.builtThisTurn = true;
   log(g, `${p.name} 建设 ${lm.name}，花费 ${lm.cost}`);
   if (isWin(p)) {
     log(g, `🎉 ${p.name} 建成 4 个地标，获胜！`);
@@ -314,7 +338,23 @@ function isWin(p) {
   return Object.values(p.landmarks).every(v => v === true);
 }
 
+function endTurn(g) {
+  const extraTurn = Boolean(g.extraTurn);
+  const playerId = g.current;
+  if (!extraTurn) g.current = (g.current + 1) % g.players.length;
+  g.dice = null;
+  g.rerolled = false;
+  g.settled = false;
+  g.extraTurn = false;
+  g.boughtThisTurn = false;
+  g.builtThisTurn = false;
+  g.pendingChoice = null;
+  g.phase = 'roll';
+  g.turnNumber += 1;
+  return { extraTurn, playerId };
+}
+
 module.exports = {
   createGame, rollDice, canReroll, settle, handleChoice,
-  canBuy, buyCard, canBuild, buildLandmark, isWin,
+  canBuy, buyCard, canBuild, buildLandmark, isWin, endTurn,
 };
