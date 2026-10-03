@@ -7,9 +7,9 @@
 // 'six'   —— 6 点特殊卡，自己掷出 6 时触发
 
 const CARDS = {
-  wheat:      { id:'wheat',      name:'麦田',       cost:1, points:[1],      trigger:'any',   limit:10, effect:{type:'gain', amount:1} },
+  wheat:      { id:'wheat',      name:'麦田',       cost:1, points:[1],      trigger:'any',   limit:14, effect:{type:'gain', amount:1} },
   ranch:      { id:'ranch',      name:'牧场',       cost:2, points:[2],      trigger:'any',   limit:10, effect:{type:'gain', amount:1} },
-  bakery:     { id:'bakery',     name:'面包店',     cost:2, points:[2,3],    trigger:'self',  limit:8,  effect:{type:'gain', amount:1} },
+  bakery:     { id:'bakery',     name:'面包店',     cost:2, points:[2,3],    trigger:'self',  limit:12,  effect:{type:'gain', amount:1} },
   cafe:       { id:'cafe',       name:'咖啡店',     cost:2, points:[3],      trigger:'other', limit:8,  effect:{type:'take', amount:1} },
   convenience:{ id:'convenience',name:'便利店',     cost:2, points:[4],      trigger:'self',  limit:8,  effect:{type:'gain', amount:3} },
   forest:     { id:'forest',     name:'林场',       cost:3, points:[5],      trigger:'any',   limit:8,  effect:{type:'gain', amount:1} },
