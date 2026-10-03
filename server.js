@@ -51,12 +51,30 @@ wss.on('connection', (ws) => {
     // ================= 加入房间 =================
     if (msg.type === 'join') {
       const name = (msg.name || '玩家').slice(0, 8);
+      const wantRoom = (msg.roomId || '').trim();
 
-      let roomId = Object.keys(rooms).find(id => rooms[id].clients.length < 4);
-      if (!roomId) {
-        roomId = String(nextRoomId++);
-        rooms[roomId] = { game: null, clients: [], names: [] };
+      let roomId = null;
+      if (wantRoom) {
+        // 指定房间号
+        if (!rooms[wantRoom]) {
+          rooms[wantRoom] = { game: null, clients: [], names: [] };
+        }
+        const room = rooms[wantRoom];
+        if (room.clients.length >= 4) {
+          send(ws, { type: 'error', msg: '房间已满' });
+          ws.close();
+          return;
+        }
+        roomId = wantRoom;
+      } else {
+        // 没指定：找一个没满的房间，没有就新建
+        roomId = Object.keys(rooms).find(id => rooms[id].clients.length < 4);
+        if (!roomId) {
+          roomId = String(nextRoomId++);
+          rooms[roomId] = { game: null, clients: [], names: [] };
+        }
       }
+
       const room = rooms[roomId];
       const playerId = room.clients.length;
 
@@ -100,12 +118,9 @@ wss.on('connection', (ws) => {
       g.rerolled = false;
       g.settled = false;
 
-      // 不结算！先看是否有重掷机会
       if (E.canReroll(g, p)) {
-        // 有重掷机会：等待玩家选择接受或重掷
         g.pendingChoice = { type: 'askReroll', rollerId: p.id };
       } else {
-        // 没有重掷机会：直接结算
         const result = E.settle(g, p.id, g.dice.sum);
         g.log.push(...result.events);
         g.settled = true;

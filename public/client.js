@@ -33,10 +33,18 @@ const LANDMARK_COSTS = {
 // ---------- 加入游戏 ----------
 function join() {
   const name = document.getElementById('nameInput').value.trim() || '玩家';
+  const wantRoom = document.getElementById('roomInput').value.trim();
+
+  // 同一浏览器只能进一次
+  if (localStorage.getItem('machi_joined')) {
+    alert('你已经在一个房间里了，不能重复进入。\n如果想换房间，请关掉所有标签页后重新打开。');
+    return;
+  }
+
   ws = new WebSocket(`ws://${location.host}`);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'join', name }));
+    ws.send(JSON.stringify({ type: 'join', name, roomId: wantRoom }));
   };
 
   ws.onmessage = (e) => {
@@ -45,6 +53,7 @@ function join() {
     if (msg.type === 'joined') {
       myId = msg.playerId;
       roomId = msg.roomId;
+      localStorage.setItem('machi_joined', '1');
       document.getElementById('joinMsg').textContent =
         `已加入房间 ${roomId}，你是玩家 ${myId}`;
     }
@@ -61,10 +70,13 @@ function join() {
     }
     else if (msg.type === 'error') {
       alert(msg.msg);
+      localStorage.removeItem('machi_joined');
+      ws.close();
     }
   };
 
   ws.onclose = () => {
+    localStorage.removeItem('machi_joined');
     document.getElementById('joinMsg').textContent = '连接已断开';
   };
 }
@@ -117,7 +129,6 @@ function render() {
   actionsEl.innerHTML = '';
   const isMyTurn = me && game.current === me.id;
 
-  // === 优先处理 pendingChoice ===
   if (isMyTurn && game.pendingChoice) {
     renderPendingChoice(actionsEl, me);
     renderLog();
@@ -128,7 +139,6 @@ function render() {
     actionsEl.textContent = '正在同步身份...';
   } else if (isMyTurn) {
     if (!game.dice) {
-      // 掷骰阶段
       const btn1 = document.createElement('button');
       btn1.textContent = '掷 1 个骰子';
       btn1.onclick = () => ws.send(JSON.stringify({ type: 'roll', count: 1 }));
@@ -141,7 +151,6 @@ function render() {
         actionsEl.appendChild(btn2);
       }
     } else if (game.settled) {
-      // 已结算：购买 + 建设 + 结束回合
       if (!game.boughtThisTurn) {
         const points = game.dice.sum;
         for (const cid of Object.keys(CARD_NAMES)) {
@@ -184,7 +193,6 @@ function render() {
 function renderPendingChoice(container, me) {
   const pc = game.pendingChoice;
 
-  // === 重掷询问 ===
   if (pc.type === 'askReroll') {
     const tip = document.createElement('div');
     tip.textContent = `你掷出了 ${game.dice.sum}，是否接受？`;
@@ -198,7 +206,6 @@ function renderPendingChoice(container, me) {
     };
     container.appendChild(acceptBtn);
 
-    // 广播中心：重掷只能 1 骰
     const canRerollRadio = me.landmarks.radio;
     const canRerollPark = me.landmarks.park && game.dice.firstCount === 2;
 
@@ -222,7 +229,6 @@ function renderPendingChoice(container, me) {
     return;
   }
 
-  // === 体育馆：是否发动 ===
   if (pc.type === 'askStadium') {
     const tip = document.createElement('div');
     tip.textContent = '体育馆：是否向全场其他玩家各收 2 元？';
@@ -241,7 +247,6 @@ function renderPendingChoice(container, me) {
     return;
   }
 
-  // === 电视塔：是否发动 ===
   if (pc.type === 'askTv') {
     const tip = document.createElement('div');
     tip.textContent = '电视塔：是否向一名玩家收取 5 元？';
@@ -260,7 +265,6 @@ function renderPendingChoice(container, me) {
     return;
   }
 
-  // === 电视塔：选人 ===
   if (pc.type === 'tvPickTarget') {
     const tip = document.createElement('div');
     tip.textContent = '电视塔：选择一名玩家，收取 5 元';
@@ -279,7 +283,6 @@ function renderPendingChoice(container, me) {
     return;
   }
 
-  // === 商场：是否发动 ===
   if (pc.type === 'askMall') {
     const tip = document.createElement('div');
     tip.textContent = '商场：是否与一名玩家交换卡牌？';
@@ -298,7 +301,6 @@ function renderPendingChoice(container, me) {
     return;
   }
 
-  // === 商场：选对手 ===
   if (pc.type === 'mallPickTarget') {
     const tip = document.createElement('div');
     tip.textContent = '商场：选择一个玩家进行交换';
@@ -319,7 +321,6 @@ function renderPendingChoice(container, me) {
     return;
   }
 
-  // === 商场：选卡 ===
   if (pc.type === 'mallPickCards') {
     const target = game.players.find(p => p.id === pc.targetId);
     const tip = document.createElement('div');
