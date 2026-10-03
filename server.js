@@ -55,21 +55,29 @@ wss.on('connection', (ws) => {
       const name = (msg.name || '玩家').slice(0, 8);
       const oldToken = msg.token;
 
-      // 尝试重连：token 匹配且房间还在
+      // 尝试重连
       if (oldToken) {
         for (const rid of Object.keys(rooms)) {
           const room = rooms[rid];
           if (!room.game) continue;
           const player = room.game.players.find(p => p.token === oldToken);
           if (player) {
-            // 替换旧的 ws
+            // 踢掉该玩家的所有旧连接
+            const oldConns = room.clients.filter(c => c.playerId === player.id);
+            for (const old of oldConns) {
+              send(old, { type: 'kick', msg: '你的账号在另一个页面打开了，当前页面已断开' });
+              old.playerId = -1;   // 标记为已踢，close 时不再做离线处理
+              old.close();
+            }
             room.clients = room.clients.filter(c => c.playerId !== player.id);
+
             ws.roomId = rid;
             ws.playerId = player.id;
             ws.token = oldToken;
             room.clients.push(ws);
             player.connected = true;
-            console.log(`[reconnect] 房间 ${rid}，玩家 ${player.name} 重连`);
+
+            console.log(`[reconnect] 房间 ${rid}，玩家 ${player.name} 重连（旧连接已踢）`);
             send(ws, { type: 'joined', roomId: rid, playerId: player.id, name: player.name, token: oldToken, reconnect: true });
             broadcast(rid);
             return;
@@ -77,13 +85,8 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 新玩家加入
-      let roomId = Object.keys(rooms).find(id => {
-        const r = rooms[id];
-        return r.clients.length < 4 && (!r.game || r.game.players.some(p => !p.connected) === false);
-      });
-      // 简单策略：找人数 < 4 的房间
-      roomId = Object.keys(rooms).find(id => rooms[id].clients.length < 4);
+      // 新玩家加入：找人数 < 4 的房间
+      let roomId = Object.keys(rooms).find(id => rooms[id].clients.length < 4);
       if (!roomId) {
         roomId = String(nextRoomId++);
         rooms[roomId] = { game: null, clients: [], names: [], tokens: [] };
@@ -105,7 +108,6 @@ wss.on('connection', (ws) => {
       if (room.clients.length === 4) {
         console.log(`[start] 房间 ${roomId} 开局！`);
         room.game = E.createGame(room.names);
-        // 给每个玩家绑定 token
         room.game.players.forEach((p, i) => { p.token = room.tokens[i]; });
         broadcast(roomId);
       } else {
@@ -185,7 +187,7 @@ wss.on('connection', (ws) => {
       g.boughtThisTurn = false;
       g.pendingChoice = null;
       g.phase = 'roll';
-      g.turnNumber += 1;   // 回合数 +1
+      g.turnNumber += 1;
       broadcast(ws.roomId);
       return;
     }
@@ -194,16 +196,24 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     const room = rooms[ws.roomId];
     if (!room) return;
-    // 标记该玩家离线，但保留房间
+
+    // 被踢的旧连接，直接移除，不做离线标记
+    if (ws.playerId === -1) {
+      room.clients = room.clients.filter(c => c !== ws);
+      return;
+    }
+
     if (room.game) {
       const player = room.game.players.find(p => p.id === ws.playerId);
-      if (player) player.connected = false;
+      // 确认没有其他同一玩家的活跃连接
+      const stillConnected = room.clients.some(
+        c => c !== ws && c.playerId === ws.playerId && c.readyState === 1
+      );
+      if (player && !stillConnected) player.connected = false;
     }
     room.clients = room.clients.filter(c => c !== ws);
     console.log(`[leave] 房间 ${ws.roomId}，玩家 ${ws.playerId} 离线，剩余连接 ${room.clients.length}`);
-    // 广播状态，让其他人看到"离线"
     broadcast(ws.roomId);
-    // 如果所有人都离线，可以保留房间一段时间；这里简化：不删
   });
 });
 

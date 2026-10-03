@@ -4,6 +4,7 @@ let myId = null;
 let game = null;
 let roomId = null;
 let myToken = null;
+let kicked = false;   // 是否被踢（用于停止自动重连）
 
 const CARD_NAMES = {
   wheat:'麦田', ranch:'牧场', bakery:'面包店', cafe:'咖啡店',
@@ -23,7 +24,6 @@ const CARD_COSTS = {
   stadium:6, tvStation:8, mall:7, dairy:3, orchard:3, mine:3,
   teaHouse:3, craft:3, farm:2,
 };
-// 卡牌分类（用于颜色）
 const CARD_TYPE = {
   wheat:'any', ranch:'any', forest:'any',
   bakery:'self', convenience:'self', dairy:'self', orchard:'self',
@@ -43,6 +43,7 @@ const LANDMARK_COSTS = {
 function join() {
   const name = document.getElementById('nameInput').value.trim() || '玩家';
   const savedToken = localStorage.getItem('machi_token');
+  kicked = false;
   connect(name, savedToken);
 }
 
@@ -76,13 +77,22 @@ function connect(name, token) {
       document.getElementById('roomInfo').textContent = `（房间 ${roomId}，你是 ${myId} 号）`;
       render();
     }
+    else if (msg.type === 'kick') {
+      // 被踢：停止重连，提示用户
+      kicked = true;
+      alert(msg.msg || '你已在其他页面打开游戏');
+      document.getElementById('joinMsg').textContent = '你已在其他页面打开游戏，此页面已断开';
+      document.getElementById('game').style.display = 'none';
+      document.getElementById('join').style.display = 'block';
+    }
     else if (msg.type === 'error') {
       alert(msg.msg);
     }
   };
 
   ws.onclose = () => {
-    // 断线自动重连
+    if (kicked) return;   // 被踢的不自动重连
+
     document.getElementById('joinMsg').textContent = '连接断开，3 秒后重连...';
     setTimeout(() => {
       if (myToken) {
@@ -124,7 +134,6 @@ function render() {
   if (!game) return;
   const me = findMe();
 
-  // 当前回合横幅
   const banner = document.getElementById('turnBanner');
   const currentPlayer = game.players[game.current];
   if (me && game.current === me.id) {
@@ -135,7 +144,6 @@ function render() {
     banner.classList.remove('me');
   }
 
-  // 骰子
   if (game.dice) {
     animateDice(game.dice.sum, game.dice.values);
   } else {
@@ -143,7 +151,6 @@ function render() {
     lastDiceKey = '';
   }
 
-  // 玩家列表
   const playersEl = document.getElementById('players');
   playersEl.innerHTML = '';
   game.players.forEach((p, i) => {
@@ -182,7 +189,6 @@ function render() {
     playersEl.appendChild(poolDiv);
   }
 
-  // 操作区
   const actionsEl = document.getElementById('actions');
   actionsEl.innerHTML = '';
   const isMyTurn = me && game.current === me.id;
@@ -420,14 +426,13 @@ function renderPendingChoice(container, me) {
   container.textContent = '等待选择...';
 }
 
-// ---------- 日志（分回合） ----------
+// ---------- 日志 ----------
 function renderLog() {
   const logEl = document.getElementById('log');
   const logs = game.log || [];
   let lastTurn = null;
   let html = '';
   logs.slice(-80).forEach(entry => {
-    // 兼容旧格式（字符串）
     const text = typeof entry === 'string' ? entry : entry.text;
     const turn = typeof entry === 'string' ? null : entry.turn;
     if (turn !== null && turn !== lastTurn) {
