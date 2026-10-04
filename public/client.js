@@ -248,17 +248,17 @@ function renderWaiting(msg) {
   document.getElementById('roomDlc').disabled = !isHost;
   document.getElementById('dlcSettingHint').textContent = `${isHost ? '你是房主，可在开局前切换。' : '由房主切换。'}开局后锁定；DLC包含11种新建筑、任务、事件和角色。`;
   document.getElementById('waitingRoomId').textContent = msg.roomId;
-  document.getElementById('waitingText').textContent = msg.testRoom ? '单人练习：选好头像和模式后点击开始。' : `还差 ${msg.need} 人，满 4 人后自动开始游戏`;
+  document.getElementById('waitingText').textContent = msg.testRoom ? '单人练习：选好头像和模式后点击开始。' : `还差 ${msg.need} 人，由房主点击「开始游戏」开局`;
 
   const bots = (msg.players || []).filter(p => p.bot);
   const members = (msg.players || []).filter(Boolean);
   const botControls = document.getElementById('botControls');
   botControls.hidden = !isHost || msg.testRoom;
   if (!botControls.hidden) {
-    document.getElementById('startGameButton').disabled = !(members.length >= 2 && bots.length > 0);
+    document.getElementById('startGameButton').disabled = !(members.length >= 2);
     document.getElementById('botHint').textContent = bots.length
-      ? `已添加 ${bots.length} 名人机：满 4 人自动开局，也可点击「开始游戏」立即开局。`
-      : '可添加人机补位（简单/普通/困难）：满 4 人自动开局。';
+      ? `已添加 ${bots.length} 名人机：点击「开始游戏」开局（满员后也需你确认开始）。`
+      : '可添加人机补位，或等待玩家加入；由你点击「开始游戏」开局。';
   }
 
   const list = document.getElementById('waitingPlayers');

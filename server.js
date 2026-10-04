@@ -528,7 +528,6 @@ function createMachiServer(options = {}) {
     room.members.push(member);
     console.log(`[join] 房间 ${room.id}，${member.name}，当前人数 ${room.members.length}`);
     attachToMember(ws, room, member, false);
-    if (!room.testRoom && room.members.length === MAX_PLAYERS) startGame(room);
   }
 
   function handleLeaveRoom(ws) {
@@ -868,7 +867,6 @@ function createMachiServer(options = {}) {
         console.log(`[bot] 房间 ${room.id} 添加${B.BOT_LABELS[difficulty]}人机，当前人数 ${room.members.length}`);
         sendWaiting(room);
         broadcastLobby();
-        if (room.members.length === MAX_PLAYERS) startGame(room);
         return;
       }
       if (msg.type === 'removeBot') {
@@ -891,7 +889,6 @@ function createMachiServer(options = {}) {
         if (room.game) return sendError(ws, '游戏已经开始', 'ROOM_STARTED');
         if (room.members[0]?.socket !== ws) return sendError(ws, '只有房主可以开始游戏', 'HOST_ONLY');
         if (room.members.length < 2) return sendError(ws, '至少需要 2 名玩家才能开始', 'NOT_ENOUGH_PLAYERS');
-        if (!room.members.some(member => member.isBot)) return sendError(ws, '当前房间没有人机，请等待玩家加入', 'NO_BOT');
         startGame(room);
         return;
       }
