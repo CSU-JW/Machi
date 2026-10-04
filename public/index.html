@@ -178,6 +178,10 @@
       <p id="waitingText" class="helper"></p>
       <label class="dlc-setting"><input id="roomDlc" type="checkbox"> 启用海滨假日 DLC</label><p id="dlcSettingHint" class="helper"></p>
       <div id="waitingPlayers" class="seat-list"></div>
+      <div class="spectator-area" id="spectatorArea" hidden>
+        <div class="spectator-head">👁 观战席</div>
+        <div id="waitingSpectators" class="spectator-list"></div>
+      </div>
       <div id="botControls" class="bot-controls" hidden>
         <label class="bot-difficulty">🤖 人机难度
           <select id="botDifficulty">
@@ -255,8 +259,8 @@
       <h2 id="gameOverTitle">游戏结束</h2>
       <p id="gameOverText"></p>
       <div class="modal-actions">
-        <button id="gameOverClose" class="secondary" type="button">查看最终城镇</button>
-        <button id="gameOverLobby" class="primary" type="button">返回大厅</button>
+        <button id="gameOverClose" class="secondary" type="button">立即返回房间</button>
+        <button id="gameOverLobby" class="primary" type="button">离开房间</button>
       </div>
     </div>
   </div>
@@ -264,6 +268,6 @@
   <dialog id="playerDialog" class="profile-dialog" aria-labelledby="playerTitle"><h3 id="playerTitle"></h3><div id="playerDetails"></div><form method="dialog"><button class="primary">关闭</button></form></dialog>
   <div id="connectionStatus">连接已断开，正在重连…</div>
   <script src="/dlc1/catalog.js?v=20261003-dlc1"></script>
-  <script src="client.js?v=20261004-sync"></script>
+  <script src="client.js?v=20261004-spectate"></script>
 </body>
 </html>

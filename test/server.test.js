@@ -571,3 +571,127 @@ test('房主退出后房主身份转接给列表第一位玩家，人机保留�
   assert.equal(f.app.rooms.has(roomId), false, '全员退出后房间应关闭');
   assert.ok(f.app.rooms.has('test'), '测试房应始终保留');
 });
+
+test('等待房内可在参赛席与观战席之间切换，唯一的参赛者不能切走', async t => {
+  const f = await createFixture(t);
+  const host = await f.client();
+  await guest(host, '房主', 'seat_host_0000001');
+  const other = await f.client();
+  await guest(other, '玩家二', 'seat_guest_00001');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  const roomId = String((await host.waitFor('roomCreated')).roomId);
+  host.send({ type: 'joinRoom', roomId });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  // 唯一的参赛者（房主）不能切到观战席
+  host.send({ type: 'toggleSeat' });
+  assert.equal((await host.waitFor('error')).code, 'ONLY_PARTICIPANT');
+  other.send({ type: 'joinRoom', roomId });
+  await other.waitFor('roomJoined');
+  await other.waitFor('chatHistory');
+  // 玩家二切到观战席
+  other.send({ type: 'toggleSeat' });
+  const waiting = await other.waitFor('waiting', m => m.spectators.length === 1 && m.players.length === 1);
+  assert.equal(waiting.spectators[0].name, '玩家二');
+  assert.equal(waiting.players[0].name, '房主');
+  assert.equal(waiting.hostId, 0);
+  // 再切回参赛席
+  other.send({ type: 'toggleSeat' });
+  const waiting2 = await other.waitFor('waiting', m => m.spectators.length === 0 && m.players.length === 2);
+  assert.ok(waiting2.players.some(p => p.name === '玩家二'));
+  assert.ok(waiting2.players.some(p => p.name === '房主'));
+});
+
+test('对局中可加入观战：收到实时状态、系统提示与观战标识，且不能操作', async t => {
+  const f = await createFixture(t);
+  const host = await f.client();
+  await guest(host, '房主', 'spec_host_0000001');
+  const player2 = await f.client();
+  await guest(player2, '玩家二', 'spec_player_0001');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  const roomId = String((await host.waitFor('roomCreated')).roomId);
+  host.send({ type: 'joinRoom', roomId });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  player2.send({ type: 'joinRoom', roomId });
+  await player2.waitFor('roomJoined');
+  await player2.waitFor('chatHistory');
+  host.send({ type: 'startGame' });
+  await host.waitFor('state');
+  // 第三人中途加入 → 自动成为观战者
+  const watcher = await f.client();
+  await guest(watcher, '观战者', 'spec_watcher_0001');
+  watcher.send({ type: 'joinRoom', roomId });
+  const joined = await watcher.waitFor('roomJoined');
+  assert.equal(joined.spectator, true);
+  assert.equal(joined.playerId, null);
+  const state = await watcher.waitFor('state');
+  assert.equal(state.game.players.length, 2);
+  // 参赛者收到“加入观战”系统提示
+  const sysMsg = await host.waitFor('chat', m => m.system === true);
+  assert.ok(sysMsg.text.includes('观战者'));
+  assert.ok(sysMsg.text.includes('加入了观战'));
+  // 观战者可以发言，消息带观战标识
+  watcher.send({ type: 'chat', text: '加油！' });
+  const chat = await host.waitFor('chat', m => m.text === '加油！');
+  assert.equal(chat.spectator, true);
+  assert.equal(chat.name, '观战者');
+  // 观战者不能进行游戏操作
+  watcher.send({ type: 'roll', count: 1 });
+  assert.equal((await watcher.waitFor('error')).code, 'INVALID_SEAT');
+  // 观战者退出不影响对局
+  watcher.send({ type: 'leaveRoom' });
+  await watcher.waitFor('leftRoom');
+  const room = f.app.rooms.get(roomId);
+  assert.ok(room.game);
+  assert.equal(room.members.length, 2);
+});
+
+test('对局结束自动返回等待房，参赛者与观战者席位保持不变', async t => {
+  const f = await createFixture(t, { gameOverResetMs: 150 });
+  const host = await f.client();
+  await guest(host, '房主', 'go_host_00000001');
+  const player2 = await f.client();
+  await guest(player2, '玩家二', 'go_player_00001');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  const roomId = String((await host.waitFor('roomCreated')).roomId);
+  host.send({ type: 'joinRoom', roomId });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  player2.send({ type: 'joinRoom', roomId });
+  await player2.waitFor('roomJoined');
+  await player2.waitFor('chatHistory');
+  host.send({ type: 'startGame' });
+  await host.waitFor('state');
+  const watcher = await f.client();
+  await guest(watcher, '观战者', 'go_watcher_00001');
+  watcher.send({ type: 'joinRoom', roomId });
+  await watcher.waitFor('roomJoined');
+  await watcher.waitFor('state');
+  // 让房主建成第 4 个地标获胜
+  const room = f.app.rooms.get(roomId);
+  const game = room.game;
+  const player = game.players[0];
+  player.money = 100;
+  player.landmarks = { train: true, radio: true, mallC: true, park: false };
+  game.dice = { count: 1, values: [3], sum: 3, firstCount: 1 };
+  game.settled = true;
+  game.builtThisTurn = false;
+  game.pendingChoice = null;
+  game.current = 0;
+  host.send({ type: 'build', landmarkId: 'park' });
+  await host.waitFor('state', m => m.game.gameOver);
+  // 自动返回等待房（约150ms后），参赛者与观战者席位不变
+  const waiting = await host.waitFor('waiting', m => m.players.length === 2 && m.spectators.length === 1, 5000);
+  assert.equal(waiting.players[0].name, '房主');
+  assert.equal(waiting.players[1].name, '玩家二');
+  assert.equal(waiting.hostId, 0);
+  assert.equal(waiting.spectators[0].name, '观战者');
+  const waitingWatcher = await watcher.waitFor('waiting', undefined, 5000);
+  assert.equal(waitingWatcher.spectators.length, 1);
+  assert.equal(f.app.rooms.get(roomId).game, null);
+  // 结束后可再次开局（参赛者仍在席）
+  host.send({ type: 'startGame' });
+  const state2 = await host.waitFor('state', undefined, 5000);
+  assert.equal(state2.game.players.length, 2);
+});

@@ -116,7 +116,7 @@ function connect() {
 
     if (msg.type === 'roomJoined') {
       roomId = String(msg.roomId);
-      myId = msg.playerId;
+      myId = msg.spectator ? null : msg.playerId;
       game = null;
       lastGameOverKey = '';
       chatLog = [];
@@ -128,6 +128,7 @@ function connect() {
 
     if (msg.type === 'waiting') {
       roomId = String(msg.roomId);
+      closeGameOverModal();
       renderWaiting(msg);
       showScreen('waiting');
       return;
@@ -152,7 +153,8 @@ function connect() {
       document.getElementById('playerDialog').close();
       game = msg.game;
       showScreen('game');
-      document.getElementById('roomInfo').textContent = roomId==='test'?'（单人测试）':`（房间 ${roomId}，${myId + 1} 号玩家）`;
+      document.getElementById('roomInfo').textContent = roomId==='test'?'（单人测试）':(myId === null ? `（房间 ${roomId} · 👁 观战中）` : `（房间 ${roomId}，${myId + 1} 号玩家）`);
+      document.getElementById('leaveGameButton').textContent = myId === null ? '退出观战' : '退出本局';
       render();
       if (game.gameOver) showGameOver();
       return;
@@ -222,14 +224,16 @@ function renderLobby(rooms) {
 
     const count = document.createElement('div');
     count.className = 'room-count';
-    count.textContent = `${room.playerCount} / ${room.capacity} 位玩家 · ${room.dlcEnabled ? '🌊 海滨假日 DLC' : '原版'}`;
+    const spectatorText = room.spectatorCount ? ` · ${room.spectatorCount} 人观战` : '';
+    count.textContent = `${room.playerCount} / ${room.capacity} 位玩家${spectatorText} · ${room.dlcEnabled ? '🌊 海滨假日 DLC' : '原版'}`;
     const players = document.createElement('div');
     players.className = 'room-players';
     players.textContent = room.players.length ? room.players.join('、') : '暂无玩家，等你加入';
     const button = document.createElement('button');
     button.className = 'primary';
-    button.disabled = room.status === 'playing' || room.playerCount >= room.capacity;
-    button.textContent = room.status === 'playing' ? '游戏已开始' : room.playerCount >= room.capacity ? '房间已满' : '加入房间';
+    const isPlaying = room.status === 'playing';
+    button.disabled = !isPlaying && room.playerCount >= room.capacity;
+    button.textContent = isPlaying ? '👁 观战' : room.playerCount >= room.capacity ? '房间已满' : '加入房间';
     button.addEventListener('click', () => joinRoom(room.id));
     card.append(title, count, players, button);
     container.appendChild(card);
@@ -281,6 +285,14 @@ function renderWaiting(msg) {
       } else {
         seat.className = `seat${player.connected === false ? ' offline' : ''}`;
         seat.textContent = `${AVATARS[player.avatar]?.icon || '🐶'} ${index + 1} 号位 · ${player.name}${player.id === myId ? '（你）' : ''}${player.connected === false ? ' · 离线' : ''}`;
+        if (player.id === myId) {
+          const toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'seat-toggle';
+          toggle.textContent = '🔁 切到观战席';
+          toggle.addEventListener('click', () => send({ type: 'toggleSeat' }));
+          seat.appendChild(toggle);
+        }
       }
     } else {
       seat.className = 'seat empty';
@@ -288,8 +300,36 @@ function renderWaiting(msg) {
     }
     list.appendChild(seat);
   }
-  list.append(avatarPicker(msg.players.find(p=>p.id===myId)?.avatar));
+  const meParticipant = msg.players.find(p => p.id === myId);
+  const amSpectator = !meParticipant && !msg.testRoom;
+  if (!amSpectator) list.append(avatarPicker(msg.players.find(p=>p.id===myId)?.avatar));
   if(msg.testRoom)addAction(list,'开始单人测试',{type:'startTest'});
+
+  // 观战席
+  const spectators = msg.spectators || [];
+  const spectatorArea = document.getElementById('spectatorArea');
+  spectatorArea.hidden = !spectators.length && !amSpectator;
+  const spectatorList = document.getElementById('waitingSpectators');
+  spectatorList.replaceChildren();
+  spectators.forEach((spec) => {
+    const row = document.createElement('div');
+    row.className = 'spectator-row';
+    row.textContent = `👁 ${spec.name}${spec.connected === false ? ' · 离线' : ''}`;
+    spectatorList.appendChild(row);
+  });
+  if (amSpectator) {
+    const row = document.createElement('div');
+    row.className = 'spectator-row me';
+    const label = document.createElement('span');
+    label.textContent = '👁 你正在观战';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'seat-toggle';
+    toggle.textContent = '🔁 切到参赛席';
+    toggle.addEventListener('click', () => send({ type: 'toggleSeat' }));
+    row.append(label, toggle);
+    spectatorList.appendChild(row);
+  }
 }
 
 function joinRoom(id) { send({ type: 'joinRoom', roomId: String(id) }); }
@@ -341,6 +381,7 @@ document.getElementById('addBotButton').addEventListener('click', () => send({ t
 document.getElementById('startGameButton').addEventListener('click', () => send({ type: 'startGame' }));
 document.getElementById('leaveRoomButton').addEventListener('click', () => send({ type: 'leaveRoom' }));
 document.getElementById('leaveGameButton').addEventListener('click', () => {
+  if (myId === null) { send({ type: 'leaveRoom' }); return; }
   if (confirm('退出后将放弃本局席位，且不能再回到这局游戏。确定退出吗？')) send({ type: 'leaveRoom' });
 });
 document.getElementById('logoutButton').addEventListener('click', () => send({ type: 'logout' }));
@@ -355,7 +396,10 @@ document.getElementById('cardConfirmButton').addEventListener('click', () => {
 document.getElementById('cardModal').addEventListener('click', event => {
   if (event.target === event.currentTarget) closeCardModal();
 });
-document.getElementById('gameOverClose').addEventListener('click', closeGameOverModal);
+document.getElementById('gameOverClose').addEventListener('click', () => {
+  closeGameOverModal();
+  send({ type: 'returnToRoom' });
+});
 document.getElementById('gameOverLobby').addEventListener('click', () => {
   closeGameOverModal();
   send({ type: 'leaveRoom' });
@@ -604,9 +648,12 @@ function showGameOver() {
   if (lastGameOverKey === key) return;
   lastGameOverKey = key;
   document.getElementById('gameOverTitle').textContent = winner.id === myId ? '恭喜，你获胜了！' : '游戏结束';
-  document.getElementById('gameOverText').textContent = winner.id === myId
+  const resultText = winner.id === myId
     ? '你率先建成了全部 4 个地标，梦想小镇圆满落成！'
     : `${playerName(winner)} 率先建成全部 4 个地标，获得胜利。`;
+  document.getElementById('gameOverText').textContent = myId === null
+    ? `${resultText} 对局结束，即将自动返回房间等待。`
+    : `${resultText} 8 秒后自动返回房间，所有玩家席位保持不变。`;
   const modal = document.getElementById('gameOverModal');
   modal.classList.add('active');
   modal.setAttribute('aria-hidden', 'false');
@@ -725,7 +772,7 @@ function render() {
     return;
   }
 
-  if (!me) actions.textContent = '正在同步身份…';
+  if (!me) actions.textContent = myId === null && roomId ? '👁 观战中，无法进行游戏操作' : '正在同步身份…';
   else if (isMyTurn) {
     if (!game.dice) {
       const heading = document.createElement('h3');
@@ -957,6 +1004,12 @@ function chatTimeLabel(ts) {
 }
 
 function chatLineElement(entry) {
+  if (entry.system) {
+    const row = document.createElement('div');
+    row.className = 'chat-msg chat-system';
+    row.textContent = `📢 ${entry.text}`;
+    return row;
+  }
   const row = document.createElement('div');
   const mine = entry.playerId === myId;
   row.className = `chat-msg${mine ? ' mine' : ''}`;
@@ -964,9 +1017,16 @@ function chatLineElement(entry) {
   meta.className = 'chat-meta';
   const who = document.createElement('span');
   who.textContent = `${AVATARS[entry.avatar]?.icon || '💬'} ${entry.name}${mine ? '（你）' : ''}`;
+  meta.appendChild(who);
+  if (entry.spectator) {
+    const tag = document.createElement('span');
+    tag.className = 'chat-spec-tag';
+    tag.textContent = '👁 观战';
+    meta.appendChild(tag);
+  }
   const time = document.createElement('span');
   time.textContent = chatTimeLabel(entry.ts);
-  meta.append(who, time);
+  meta.appendChild(time);
   const text = document.createElement('div');
   text.className = 'chat-text';
   text.textContent = entry.text;
