@@ -67,7 +67,7 @@ test('关闭DLC时没有新牌、任务、事件或角色，且无法购买DLC�
 test('11种新建筑公式与上限',()=>{
   const g=setup();g.dice={count:2};const p=g.players[0];p.cards={wheat:1,ranch:2,forest:2,fishery:4,harbor:1,dairy:1,craft:1,farm:1};
   p.landmarks={train:true,radio:true,mallC:true,park:false};
-  const cases={florist:3,fishery:1,bookshop:3,busDepot:4,harbor:2,museum:3,seafoodMarket:9,aquarium:8,spa:8,nightMarket:4,techPark:9};
+  const cases={florist:2,fishery:1,bookshop:2,busDepot:3,harbor:2,museum:3,seafoodMarket:9,aquarium:8,spa:8,nightMarket:4,techPark:9};
   for(const [id,value] of Object.entries(cases))assert.equal(D.income(CARDS[id],p,g),value,id);
   g.dice.count=1;assert.equal(D.income(CARDS.harbor,p,g),1);
 });

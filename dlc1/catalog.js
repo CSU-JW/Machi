@@ -2,10 +2,10 @@
 const DLC1 = {
   version: '0.2-playtest',
   buildings: [
-    {id:'florist',name:'花店',points:[1],cost:1,color:'green',limit:6,description:'自己掷出1：获得3元。',effect:'fixed',amount:3},
+    {id:'florist',name:'花店',points:[1],cost:1,color:'green',limit:6,description:'自己掷出1：获得2元。',effect:'fixed',amount:2},
     {id:'fishery',name:'渔场',points:[2],cost:2,color:'blue',limit:6,description:'任意玩家掷出2：获得1元。',effect:'fixed',amount:1},
-    {id:'bookshop',name:'书店',points:[3],cost:2,color:'green',limit:6,description:'自己掷出3：获得3元。',effect:'fixed',amount:3},
-    {id:'busDepot',name:'公交站',points:[4],cost:2,color:'green',limit:6,description:'自己掷出4：获得2元；已建成至少2个地标时改为4元。',effect:'landmarkStep'},
+    {id:'bookshop',name:'书店',points:[3],cost:2,color:'green',limit:6,description:'自己掷出3：获得2元。',effect:'fixed',amount:2},
+    {id:'busDepot',name:'公交站',points:[4],cost:2,color:'green',limit:6,description:'自己掷出4：获得2元；已建成至少2个地标时改为3元。',effect:'landmarkStep'},
     {id:'harbor',name:'港口',points:[5],cost:4,color:'blue',limit:6,description:'任意玩家掷出5：单骰获得1元，双骰获得2元。',effect:'diceCount'},
     {id:'museum',name:'博物馆',points:[6],cost:5,color:'purple',limit:4,unique:true,description:'自己掷出6：自动获得3元。每人限1张，不可交换。',effect:'fixed',amount:3},
     {id:'seafoodMarket',name:'海鲜市场',points:[7],cost:3,color:'green',limit:6,description:'自己掷出7：每张渔场提供3元，每张牧场提供1元；每张市场最多获得9元。',effect:'seafood'},

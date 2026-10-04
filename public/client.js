@@ -395,7 +395,7 @@ const CARD_DESCRIPTIONS = {
   ranch:'任意玩家掷出 2：你获得 1 元。',
   bakery:'自己掷出 2～3：你获得 1 元。',
   cafe:'他人掷出 3：向该玩家收取 1 元。',
-  convenience:'自己掷出 4：你获得 3 元。',
+  convenience:'自己掷出 4：你获得 2 元。',
   forest:'任意玩家掷出 5：你获得 1 元。',
   stadium:'自己掷出 6：可向其他玩家各收取最多 2 元。',
   tvStation:'自己掷出 6：可选择一名玩家，收取最多 5 元。',
@@ -414,7 +414,7 @@ const CARD_TYPE = {
 };
 const SIX_CARDS = ['stadium','tvStation','mall','museum'];
 const LANDMARK_NAMES = { train:'火车站', radio:'广播中心', mallC:'商业中心', park:'游乐园' };
-const LANDMARK_COSTS = { train:4, radio:16, mallC:13, park:22 };
+const LANDMARK_COSTS = { train:4, radio:16, mallC:18, park:22 };
 const AVATARS={dog:{icon:'🐶',name:'小狗'},chick:{icon:'🐥',name:'小鸡'},fish:{icon:'🐟',name:'小鱼'},duck:{icon:'🦆',name:'小鸭'}};
 const BOT_LABELS={easy:'简单',normal:'普通',hard:'困难'};
 const LANDMARK_INFO={train:'每回合可选择投掷1个或2个骰子。',radio:'最终投掷2个骰子且为对子时，本回合结束后获得额外回合。',mallC:'面包店、便利店、咖啡店、奶茶店、果园每张收入+1；奶制品、家具、农产品工厂的每份原料收益+1。不作用于DLC建筑。',park:'每回合首次投掷后可选择重投一次；只结算最终结果。投2骰仍需火车站。'};

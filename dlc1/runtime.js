@@ -48,7 +48,7 @@ function chooseRole(g,id,role) {
 function income(card,p,g) {
   switch(card.effect.rule){
     case 'fixed': case 'take': return card.effect.amount;
-    case 'landmarkStep': return landmarks(p)>=2?4:2;
+    case 'landmarkStep': return landmarks(p)>=2?3:2;
     case 'diceCount': return g.dice.count===2?2:1;
     case 'seafood': return Math.min(9,count(p,'fishery')*3+count(p,'ranch'));
     case 'blueKinds': return Math.min(8,BLUE.filter(id=>count(p,id)).length*2);

@@ -4,7 +4,7 @@ function amount(card, dice, stage) {
   const dependencies = [0, 2, 3][stage];
   switch (card.effect) {
     case 'fixed': case 'take': return card.amount;
-    case 'landmarkStep': return stage === 2 ? 4 : 2;
+    case 'landmarkStep': return stage === 2 ? 3 : 2;
     case 'diceCount': return dice === 1 ? 1 : 2;
     case 'seafood': return Math.min(9, dependencies * 3); // 示例持有0/2/3渔场，无牧场
     case 'blueKinds': return Math.min(8, [1, 3, 4][stage] * 2);

@@ -11,7 +11,7 @@ const CARDS = {
   ranch:      { id:'ranch',      name:'牧场',       cost:2, points:[2],      trigger:'any',   limit:10, effect:{type:'gain', amount:1} },
   bakery:     { id:'bakery',     name:'面包店',     cost:2, points:[2,3],    trigger:'self',  limit:12,  effect:{type:'gain', amount:1} },
   cafe:       { id:'cafe',       name:'咖啡店',     cost:2, points:[3],      trigger:'other', limit:8,  effect:{type:'take', amount:1} },
-  convenience:{ id:'convenience',name:'便利店',     cost:2, points:[4],      trigger:'self',  limit:8,  effect:{type:'gain', amount:3} },
+  convenience:{ id:'convenience',name:'便利店',     cost:2, points:[4],      trigger:'self',  limit:8,  effect:{type:'gain', amount:2} },
   forest:     { id:'forest',     name:'林场',       cost:3, points:[5],      trigger:'any',   limit:8,  effect:{type:'gain', amount:1} },
   stadium:    { id:'stadium',    name:'体育馆',     cost:6, points:[6],      trigger:'six',   limit:4,  effect:{type:'takeAll', amount:2} },
   tvStation:  { id:'tvStation',  name:'电视塔',     cost:6, points:[6],      trigger:'six',   limit:4,  effect:{type:'takeOne', amount:5} },
@@ -35,7 +35,7 @@ const SIX_CARDS = UNIQUE_CARDS;
 const LANDMARKS = {
   train:  { id:'train',  name:'火车站',   cost:4  },
   radio:  { id:'radio',  name:'广播中心', cost:16 },
-  mallC:  { id:'mallC',  name:'商业中心', cost:13 },
+  mallC:  { id:'mallC',  name:'商业中心', cost:18 },
   park:   { id:'park',   name:'游乐园',   cost:22 },
 };
 

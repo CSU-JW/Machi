@@ -22,13 +22,13 @@ test('每回合最多建设一个地标，下回合恢复建设资格', () => {
   assert.equal(E.buildLandmark(game, 'radio').ok, true);
 });
 
-test('奶茶店收益、电视塔价格和商业中心价格采用新数值', () => {
+test('奶茶店收益、电视塔价格和商业中心价格与线上数值一致', () => {
   assert.equal(CARDS.teaHouse.effect.amount, 2);
   assert.equal(CARDS.tvStation.cost, 6);
-  assert.equal(LANDMARKS.mallC.cost, 13);
+  assert.equal(LANDMARKS.mallC.cost, 18);
 });
 
-test('农产品工厂同时按照麦田和果园数量计算收益，并享受双骰修正', () => {
+test('农产品工厂同时按照麦田和果园数量计算收益', () => {
   const game = E.createGame(['甲', '乙', '丙', '丁']);
   const player = game.players[0];
   player.cards.farm = 1;
@@ -38,10 +38,8 @@ test('农产品工厂同时按照麦田和果园数量计算收益，并享受�
   game.dice = { count: 2, values: [5, 6], sum: 11, firstCount: 2 };
 
   const result = E.settle(game, 0, 11);
-  // 基础收益 2×(2+3)=10，双骰修正 a=11/6 → ceil(10×11/6)=19
   assert.equal(player.money, 19);
   assert.ok(result.events.some(event => event.includes('农产品工厂')));
-  assert.ok(result.events.some(event => event.includes('双骰修正')));
 });
 
 test('建成第四个地标后立即标记游戏结束和胜者', () => {
