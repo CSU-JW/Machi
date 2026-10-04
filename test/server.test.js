@@ -372,3 +372,48 @@ test('人机管理：非房主不可操作、可移除、房主可手动开局',
   assert.equal(room.game, null);
   assert.equal(room.members.filter(m => m.isBot).length, 0);
 });
+
+test('人机编号按空位复用：同一难度最多1-3号，移除后补用最小空号', async t => {
+  const f = await createFixture(t);
+  const host = await f.client();
+  await guest(host, '房主戊', 'botseq_host_00001');
+  host.send({ type: 'joinRoom', roomId: '1' });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  // 添加后移除，再次添加应复用 1 号
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  let waiting = await host.waitFor('waiting', m => m.players.some(p => p.bot));
+  assert.equal(waiting.players.find(p => p.bot).name, '简单人机·1');
+  host.send({ type: 'removeBot', playerId: waiting.players.find(p => p.bot).id });
+  await host.waitFor('waiting', m => !m.players.some(p => p.bot));
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  waiting = await host.waitFor('waiting', m => m.players.some(p => p.bot));
+  assert.equal(waiting.players.find(p => p.bot).name, '简单人机·1', '移除后再次添加应复用 1 号');
+  // 连续添加 → 1、2、3 号，满员自动开局
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  waiting = await host.waitFor('waiting', m => m.players.filter(p => p.bot).length === 2);
+  assert.ok(waiting.players.some(p => p.bot && p.name === '简单人机·2'));
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  const state = await host.waitFor('state');
+  assert.deepEqual(
+    state.game.players.slice(1).map(p => p.name),
+    ['简单人机·1', '简单人机·2', '简单人机·3'],
+  );
+  // 房主退出复位后重开一局：移除 2 号后再添加，应补用 2 号而不是 4 号
+  host.send({ type: 'leaveRoom' });
+  await host.waitFor('leftRoom');
+  host.send({ type: 'joinRoom', roomId: '1' });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  waiting = await host.waitFor('waiting', m => m.players.filter(p => p.bot).length === 2);
+  const bot2 = waiting.players.find(p => p.name === '简单人机·2');
+  host.send({ type: 'removeBot', playerId: bot2.id });
+  await host.waitFor('waiting', m => m.players.filter(p => p.bot).length === 1);
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  waiting = await host.waitFor('waiting', m => m.players.filter(p => p.bot).length === 2);
+  assert.ok(waiting.players.some(p => p.bot && p.name === '简单人机·2'), '移除 2 号后再次添加应补用 2 号');
+  host.send({ type: 'leaveRoom' });
+  await host.waitFor('leftRoom');
+});

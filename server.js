@@ -30,13 +30,13 @@ function createMachiServer(options = {}) {
 
   function createRoom(dlcEnabled = false) {
     const id = String(nextRoomId++);
-    const room = { id, members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [], botSeqs: {}, botTimer: null };
+    const room = { id, members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [], botTimer: null };
     rooms.set(id, room);
     return room;
   }
 
   for (let i = 0; i < INITIAL_ROOM_COUNT; i += 1) createRoom();
-  rooms.set('test',{id:'test',members:[],game:null,dlcEnabled:false,testRoom:true,chatLog:[],botSeqs:{},botTimer:null});
+  rooms.set('test',{id:'test',members:[],game:null,dlcEnabled:false,testRoom:true,chatLog:[],botTimer:null});
 
   function readCookie(header, name) {
     const cookies = String(header || '').split(';');
@@ -836,13 +836,18 @@ function createMachiServer(options = {}) {
         const difficulty = String(msg.difficulty || '');
         if (!B.DIFFICULTIES.includes(difficulty)) return sendError(ws, '人机难度无效', 'INVALID_BOT');
         if (room.members.length >= MAX_PLAYERS) return sendError(ws, '房间已满，没有空位', 'ROOM_FULL');
-        const seq = (room.botSeqs[difficulty] || 0) + 1;
-        room.botSeqs[difficulty] = seq;
+        // 编号按当前空位复用：同一难度最多 1-3 号，移除后新加的人机补用最小空号
+        const usedSeqs = room.members
+          .filter(item => item.isBot && item.botDifficulty === difficulty)
+          .map(item => item.botSeq);
+        let seq = 1;
+        while (usedSeqs.includes(seq)) seq += 1;
         const member = {
           playerId: room.members.length,
           identityKey: null,
           deviceIds: new Set(),
           name: `${B.BOT_LABELS[difficulty]}人机·${seq}`,
+          botSeq: seq,
           avatar: ['dog','chick','fish','duck'][room.members.length],
           connected: true,
           socket: null,
