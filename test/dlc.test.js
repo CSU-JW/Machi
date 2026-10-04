@@ -36,7 +36,7 @@ test('奶茶店和夜市优先于工厂，同类按座位依次收取现有资�
   const g=setup();g.players[0].cards={craft:1,forest:2};g.players[0].money=3;
   g.players[1].cards={teaHouse:1};g.players[1].money=0;
   g.players[2].cards={nightMarket:1};g.players[2].money=0;
-  const r=roll(g,10);assert.deepEqual(g.players.map(p=>p.money),[4,2,1,3]);
+  const r=roll(g,10);assert.deepEqual(g.players.map(p=>p.money),[7,3,0,3]);
   assert.match(r.events[0],/奶茶店/);assert.match(r.events[1],/夜市/);assert.match(r.events[2],/工艺品/);
 });
 test('体育馆、电视塔收费全部完成才发博物馆收益，拒绝收费也继续结算',()=>{

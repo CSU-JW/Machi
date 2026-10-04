@@ -16,7 +16,9 @@ const P1 = p => (p >= 1 && p <= 6 ? 1 / 6 : 0); // 单骰
 const P2 = p => (p >= 2 && p <= 12 ? (6 - Math.abs(7 - p)) / 36 : 0); // 双骰
 const profileOf = player => (player.landmarks && player.landmarks.train ? P2 : P1);
 const countOf = (p, id) => (p.cards[id] || 0);
-const hitProb = (cardId, profile) => CARDS[cardId].points.reduce((s, pt) => s + profile(pt), 0);
+// 双骰收入修正加权命中率：点数为 p 时收益按 max(p/6,1) 放大（与引擎一致）
+const weightedHits = (cardId, profile) =>
+  CARDS[cardId].points.reduce((s, pt) => s + profile(pt) * Math.max(pt / 6, 1), 0);
 const landmarkCount = p => Object.values(p.landmarks).filter(Boolean).length;
 
 // ---------- 收益估算 ----------
@@ -54,11 +56,11 @@ function roundEv(game, owner, cardId) {
   const income = triggerIncome(card, owner, game);
   let hits = 0;
   if (card.trigger === 'self') {
-    hits = hitProb(cardId, profileOf(owner));
+    hits = weightedHits(cardId, profileOf(owner));
   } else if (card.trigger === 'any') {
-    for (const pl of game.players) hits += hitProb(cardId, profileOf(pl));
+    for (const pl of game.players) hits += weightedHits(cardId, profileOf(pl));
   } else if (card.trigger === 'other') {
-    for (const pl of game.players) if (pl.id !== owner.id) hits += hitProb(cardId, profileOf(pl));
+    for (const pl of game.players) if (pl.id !== owner.id) hits += weightedHits(cardId, profileOf(pl));
   }
   return income * hits;
 }
@@ -76,14 +78,16 @@ function findLeader(game, selfId) {
 }
 
 // 自己掷出某个点数时的净收益：收入 − 对手红卡收费（收费以我的资金为上限）。
-function valueOfSum(game, me, sum) {
+// count 为骰子个数，双骰时收益按 max(sum/6,1) 修正（与引擎一致）。
+function valueOfSum(game, me, sum, count = 1) {
+  const multiplier = count === 2 ? Math.max(sum / 6, 1) : 1;
   let value = 0;
   for (const id of Object.keys(me.cards)) {
     const n = countOf(me, id);
     if (n <= 0 || !CARDS[id] || !CARDS[id].points.includes(sum)) continue;
     const card = CARDS[id];
     if (card.trigger === 'self' || card.trigger === 'any') {
-      value += triggerIncome(card, me, game) * n;
+      value += Math.ceil(triggerIncome(card, me, game) * n * multiplier);
     } else if (card.trigger === 'six') {
       value += id === 'stadium' ? 2 * Math.max(game.players.length - 1, 1) : id === 'tvStation' ? 4 : 1;
     }
@@ -93,7 +97,7 @@ function valueOfSum(game, me, sum) {
     for (const id of Object.keys(opp.cards)) {
       const n = countOf(opp, id);
       if (n <= 0 || !CARDS[id] || CARDS[id].trigger !== 'other' || !CARDS[id].points.includes(sum)) continue;
-      value -= Math.min(triggerIncome(CARDS[id], opp, game) * n, me.money);
+      value -= Math.min(Math.ceil(triggerIncome(CARDS[id], opp, game) * n * multiplier), me.money);
     }
   }
   return value;
@@ -103,7 +107,7 @@ function avgRollValue(game, me, count) {
   const profile = count === 2 ? P2 : P1;
   let total = 0;
   const maxSum = count === 2 ? 12 : 6;
-  for (let s = count; s <= maxSum; s += 1) total += profile(s) * valueOfSum(game, me, s);
+  for (let s = count; s <= maxSum; s += 1) total += profile(s) * valueOfSum(game, me, s, count);
   return total;
 }
 
@@ -149,7 +153,7 @@ function decideChoice(game, player, difficulty) {
 
   if (choice.type === 'askReroll') {
     if (difficulty === 'easy') return { type: 'accept' };
-    const current = valueOfSum(game, player, game.dice.sum);
+    const current = valueOfSum(game, player, game.dice.sum, game.dice.count);
     let bestCount = 1;
     let bestValue = avgRollValue(game, player, 1);
     if (player.landmarks.train) {
@@ -236,14 +240,14 @@ function counterScore(game, me, cardId) {
     for (const other of Object.keys(me.cards)) {
       const c = CARDS[other];
       if (!c || countOf(me, other) <= 0 || !c.effect) continue;
-      if (c.effect.type === 'perCard' && c.effect.dep === cardId) score += triggerIncome(c, me, game) * hitProb(other, profileOf(me));
-      if (c.effect.type === 'perCardMulti' && c.effect.deps.includes(cardId)) score += triggerIncome(c, me, game) * hitProb(other, profileOf(me));
+      if (c.effect.type === 'perCard' && c.effect.dep === cardId) score += triggerIncome(c, me, game) * weightedHits(other, profileOf(me));
+      if (c.effect.type === 'perCardMulti' && c.effect.deps.includes(cardId)) score += triggerIncome(c, me, game) * weightedHits(other, profileOf(me));
     }
   } else if (card.trigger === 'any') {
     // 蓝卡押注全桌，领跑者的骰面权重更高。
     for (const pl of game.players) {
       const weight = leader && pl.id === leader.id ? 1.5 : 1;
-      score += triggerIncome(card, me, game) * hitProb(cardId, profileOf(pl)) * weight;
+      score += triggerIncome(card, me, game) * weightedHits(cardId, profileOf(pl)) * weight;
     }
   } else if (card.trigger === 'other') {
     // 红卡狙击：优先覆盖领跑者与有钱玩家的骰面。
@@ -251,7 +255,7 @@ function counterScore(game, me, cardId) {
       if (pl.id === me.id) continue;
       let weight = leader && pl.id === leader.id ? 1.5 : 1;
       if (pl.money < triggerIncome(card, me, game)) weight *= 0.6;
-      score += triggerIncome(card, me, game) * hitProb(cardId, profileOf(pl)) * weight;
+      score += triggerIncome(card, me, game) * weightedHits(cardId, profileOf(pl)) * weight;
     }
   } else {
     score += roundEv(game, me, cardId);

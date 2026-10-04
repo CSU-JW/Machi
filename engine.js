@@ -68,6 +68,14 @@ function rollDice(count) {
   return { count, values, sum };
 }
 
+// 双骰收入修正：投两个骰子时，本次掷骰触发的所有卡牌收益乘以 a = max((m+n)/6, 1)，
+// 结果向上取整；投一个骰子时 a 恒为 1。只影响本次掷骰，不改变卡牌本身数值。
+function diceIncomeMultiplier(g) {
+  const dice = g.dice;
+  if (!dice || dice.count !== 2 || !Array.isArray(dice.values) || dice.values.length !== 2) return 1;
+  return Math.max((dice.values[0] + dice.values[1]) / 6, 1);
+}
+
 function canReroll(g, p) {
   if (!g.dice || g.settled || g.rerolled) return false;
   return playerHasLandmark(p, 'park');
@@ -99,6 +107,7 @@ function updateExtraTurn(g, roller, events) {
 function settle(g, rollerId, sum) {
   const events = [];
   const roller = g.players[rollerId];
+  const multiplier = diceIncomeMultiplier(g);
 
   // 所有收费优先；同类收费保留原有座位顺序，不能使用稍后发放的收益付款。
   for (const owner of g.players) {
@@ -106,9 +115,10 @@ function settle(g, rollerId, sum) {
     for (const cardId of Object.keys(owner.cards)) {
       const card = CARDS[cardId], n = owner.cards[cardId];
       if (!card || n <= 0 || (card.dlc && !g.dlcEnabled) || card.trigger !== 'other' || !card.points.includes(sum)) continue;
-      const amount = card.dlc ? D.income(card, owner, g) : card.effect.amount + bonusFor(owner, cardId);
-      const paid = transferUpTo(roller, owner, amount * n);
-      events.push(`${roller.name} 向 ${owner.name} 支付 ${paid}（${card.name} x${n}，应付 ${amount * n}）`);
+      const raw = (card.dlc ? D.income(card, owner, g) : card.effect.amount + bonusFor(owner, cardId)) * n;
+      const amount = Math.ceil(raw * multiplier);
+      const paid = transferUpTo(roller, owner, amount);
+      events.push(`${roller.name} 向 ${owner.name} 支付 ${paid}（${card.name} x${n}，应付 ${amount}${multiplier > 1 ? '·双骰修正' : ''}）`);
     }
   }
   g.incomePending = true;
@@ -126,6 +136,7 @@ function finishIncome(g, rollerId, events) {
   if (!g.incomePending) return mallChoice(g, rollerId);
   g.incomePending = false;
   const sum = g.dice.sum;
+  const multiplier = diceIncomeMultiplier(g);
   const triggered = [];
 
   for (const owner of g.players) {
@@ -137,29 +148,31 @@ function finishIncome(g, rollerId, events) {
       if (!card.points.includes(sum)) continue;
 
       if (card.trigger === 'any') {
-        const gain = (card.dlc ? D.income(card, owner, g) : card.effect.amount) * n;
+        const raw = (card.dlc ? D.income(card, owner, g) : card.effect.amount) * n;
+        const gain = Math.ceil(raw * multiplier);
         owner.money += gain;
         if (owner.id === rollerId) triggered.push(cardId);
-        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}`);
+        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}${multiplier > 1 ? '（双骰修正）' : ''}`);
       } else if (card.trigger === 'self') {
         if (owner.id !== rollerId) continue;
         const bonus = bonusFor(owner, cardId);
-        let gain = 0;
+        let raw = 0;
         if (card.dlc) {
-          gain = D.income(card, owner, g) * n;
+          raw = D.income(card, owner, g) * n;
         } else if (card.effect.type === 'gain') {
-          gain = (card.effect.amount + bonus) * n;
+          raw = (card.effect.amount + bonus) * n;
         } else if (card.effect.type === 'perCard') {
           const depCount = cardCount(owner, card.effect.dep);
-          gain = (card.effect.amount + bonus) * depCount * n;
+          raw = (card.effect.amount + bonus) * depCount * n;
         } else if (card.effect.type === 'perCardMulti') {
           let depTotal = 0;
           for (const d of card.effect.deps) depTotal += cardCount(owner, d);
-          gain = (card.effect.amount + bonus) * depTotal * n;
+          raw = (card.effect.amount + bonus) * depTotal * n;
         }
+        const gain = Math.ceil(raw * multiplier);
         owner.money += gain;
         triggered.push(cardId);
-        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}`);
+        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}${multiplier > 1 ? '（双骰修正）' : ''}`);
       }
     }
   }
@@ -381,6 +394,6 @@ function endTurn(g) {
 }
 
 module.exports = {
-  createGame, rollDice, canReroll, settle, handleChoice,
+  createGame, rollDice, diceIncomeMultiplier, canReroll, settle, handleChoice,
   canBuy, buyCard, canBuild, buildLandmark, isWin, endTurn,
 };

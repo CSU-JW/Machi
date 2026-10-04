@@ -115,3 +115,50 @@ test('电视塔及咖啡店收费不超过付款方现有资金', () => {
   assert.equal(game.players[1].money, 1);
   assert.ok(game.players.every(player => player.money >= 0));
 });
+
+test('双骰收入修正：点数和≥7 时卡牌收益乘以 (m+n)/6 并向上取整', () => {
+  const game = E.createGame(['甲', '乙', '丙', '丁']);
+  const player = game.players[0];
+  player.cards.dairy = 1;
+  player.cards.ranch = 2;
+  game.dice = { count: 2, values: [3, 4], sum: 7, firstCount: 2 };
+
+  const result = E.settle(game, 0, 7);
+  // 奶制品基础收益 2×2=4，修正 a=7/6 → ceil(4×7/6)=5
+  assert.equal(player.money, 3 + 5);
+  assert.ok(result.events.some(event => event.includes('双骰修正')));
+  assert.equal(E.diceIncomeMultiplier(game), 7 / 6);
+});
+
+test('单骰与双骰低和（≤6）不享受修正，a 为 1', () => {
+  const game = E.createGame(['甲', '乙', '丙', '丁']);
+  const player = game.players[0];
+  game.dice = { count: 2, values: [1, 2], sum: 3, firstCount: 2 };
+  assert.equal(E.diceIncomeMultiplier(game), 1);
+  E.settle(game, 0, 3);
+  assert.equal(player.money, 3 + 1); // 面包店 +1，无放大
+
+  game.dice = { count: 1, values: [6], sum: 6, firstCount: 1 };
+  assert.equal(E.diceIncomeMultiplier(game), 1);
+});
+
+test('红卡收费同样适用双骰修正，且不超过付款方现有资金', () => {
+  const game = E.createGame(['甲', '乙', '丙', '丁']);
+  game.players[1].cards.teaHouse = 1;
+  game.players[0].money = 10;
+  game.dice = { count: 2, values: [4, 5], sum: 9, firstCount: 2 };
+
+  E.settle(game, 0, 9);
+  // 奶茶店 2 × 9/6 = 3 → 甲支付 3
+  assert.equal(game.players[1].money, 3 + 3);
+  assert.equal(game.players[0].money, 10 - 3);
+
+  // 付款方资金不足时封顶
+  const game2 = E.createGame(['甲', '乙', '丙', '丁']);
+  game2.players[1].cards.teaHouse = 1;
+  game2.players[0].money = 2;
+  game2.dice = { count: 2, values: [4, 5], sum: 9, firstCount: 2 };
+  E.settle(game2, 0, 9);
+  assert.equal(game2.players[0].money, 0);
+  assert.equal(game2.players[1].money, 3 + 2);
+});

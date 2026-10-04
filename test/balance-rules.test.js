@@ -28,7 +28,7 @@ test('奶茶店收益、电视塔价格和商业中心价格采用新数值', ()
   assert.equal(LANDMARKS.mallC.cost, 13);
 });
 
-test('农产品工厂同时按照麦田和果园数量计算收益', () => {
+test('农产品工厂同时按照麦田和果园数量计算收益，并享受双骰修正', () => {
   const game = E.createGame(['甲', '乙', '丙', '丁']);
   const player = game.players[0];
   player.cards.farm = 1;
@@ -38,8 +38,10 @@ test('农产品工厂同时按照麦田和果园数量计算收益', () => {
   game.dice = { count: 2, values: [5, 6], sum: 11, firstCount: 2 };
 
   const result = E.settle(game, 0, 11);
-  assert.equal(player.money, 10);
+  // 基础收益 2×(2+3)=10，双骰修正 a=11/6 → ceil(10×11/6)=19
+  assert.equal(player.money, 19);
   assert.ok(result.events.some(event => event.includes('农产品工厂')));
+  assert.ok(result.events.some(event => event.includes('双骰修正')));
 });
 
 test('建成第四个地标后立即标记游戏结束和胜者', () => {
