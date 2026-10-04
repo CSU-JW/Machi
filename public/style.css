@@ -592,3 +592,11 @@ body::before {
   font-size: 12px;
 }
 .badge-bot { font-size: 11px; background: #5b8def; color: white; padding: 2px 6px; border-radius: 4px; }
+
+.room-empty-hint {
+  grid-column: 1 / -1;
+  padding: 26px 8px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 14px;
+}

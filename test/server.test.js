@@ -83,14 +83,33 @@ async function guest(client, nickname, deviceId) {
   return auth;
 }
 
-test('大厅默认展示 1、2、3 号房和单人测试房', async t => {
+test('大厅初始只保留单人测试房，创建房间从1号开始并复用空号', async t => {
   const fixture = await createFixture(t);
   const client = await fixture.client();
   client.send({ type: 'guestLogin', nickname: '游客甲', deviceId: 'device_0000000000000001' });
   await client.waitFor('authenticated');
   const lobby = await client.waitFor('lobby');
-  assert.deepEqual(lobby.rooms.map(room => room.id), ['1', '2', '3', 'test']);
+  assert.deepEqual(lobby.rooms.map(room => room.id), ['test']);
   assert.ok(lobby.rooms.every(room => room.playerCount === 0 && room.status === 'waiting'));
+
+  client.send({ type: 'createRoom', dlcEnabled: false });
+  const created = await client.waitFor('roomCreated');
+  assert.equal(created.roomId, '1');
+  client.send({ type: 'requestLobby' });
+  const lobby2 = await client.waitFor('lobby');
+  assert.deepEqual(lobby2.rooms.map(room => room.id).sort(), ['1', 'test']);
+
+  // 加入后退出：空房立即关闭清除
+  client.send({ type: 'joinRoom', roomId: '1' });
+  await client.waitFor('roomJoined');
+  client.send({ type: 'leaveRoom' });
+  await client.waitFor('leftRoom');
+  assert.equal(fixture.app.rooms.has('1'), false, '空房应被关闭清除');
+  // 再次创建：复用 1 号
+  client.send({ type: 'createRoom', dlcEnabled: true });
+  const created2 = await client.waitFor('roomCreated');
+  assert.equal(created2.roomId, '1');
+  assert.equal(fixture.app.rooms.get('1').dlcEnabled, true);
 });
 
 test('单人测试房限一席、手动开局、头像同步及退出复位',async t=>{
@@ -112,6 +131,8 @@ test('同一游客重复连接只接管原席位，不会新增玩家', async t 
   const fixture = await createFixture(t);
   const first = await fixture.client();
   await guest(first, '第一次昵称', 'same_device_000000000001');
+  first.send({ type: 'createRoom', dlcEnabled: false });
+  await first.waitFor('roomCreated');
   first.send({ type: 'joinRoom', roomId: '1' });
   const joined = await first.waitFor('roomJoined');
   assert.equal(joined.playerId, 0);
@@ -130,6 +151,8 @@ test('同一设备切换为其他身份也不能重复占座', async t => {
   const guestClient = await fixture.client();
   const deviceId = 'shared_device_000000000001';
   await guest(guestClient, '游客席位', deviceId);
+  guestClient.send({ type: 'createRoom', dlcEnabled: false });
+  await guestClient.waitFor('roomCreated');
   guestClient.send({ type: 'joinRoom', roomId: '1' });
   await guestClient.waitFor('roomJoined');
 
@@ -148,26 +171,40 @@ test('同一设备切换为其他身份也不能重复占座', async t => {
 test('四个不同身份加入指定房间后正常开局', async t => {
   const fixture = await createFixture(t);
   const clients = [];
-  for (let index = 0; index < 4; index += 1) {
+  const first = await fixture.client();
+  await guest(first, '玩家1', 'unique_device_00000000000');
+  first.send({ type: 'createRoom', dlcEnabled: false });
+  await first.waitFor('roomCreated');
+  first.send({ type: 'joinRoom', roomId: '1' });
+  await first.waitFor('roomJoined');
+  clients.push(first);
+  for (let index = 1; index < 4; index += 1) {
     const client = await fixture.client();
     await guest(client, `玩家${index + 1}`, `unique_device_0000000000${index}`);
-    client.send({ type: 'joinRoom', roomId: '2' });
+    client.send({ type: 'joinRoom', roomId: '1' });
     await client.waitFor('roomJoined');
     clients.push(client);
   }
   const state = await clients[3].waitFor('state');
   assert.equal(state.game.players.length, 4);
   assert.deepEqual(state.game.players.map(player => player.name), ['玩家1', '玩家2', '玩家3', '玩家4']);
-  assert.ok(fixture.app.rooms.get('2').game);
+  assert.ok(fixture.app.rooms.get('1').game);
 });
 
-test('开局后主动退出会释放身份，全部退出后原房号恢复为空房', async t => {
+test('开局后主动退出会释放身份，全部退出后房间关闭清除，编号复用', async t => {
   const fixture = await createFixture(t);
   const clients = [];
-  for (let index = 0; index < 4; index += 1) {
+  const first = await fixture.client();
+  await guest(first, '离场玩家1', 'leave_device_00000000000');
+  first.send({ type: 'createRoom', dlcEnabled: false });
+  await first.waitFor('roomCreated');
+  first.send({ type: 'joinRoom', roomId: '1' });
+  await first.waitFor('roomJoined');
+  clients.push(first);
+  for (let index = 1; index < 4; index += 1) {
     const client = await fixture.client();
     await guest(client, `离场玩家${index + 1}`, `leave_device_00000000000${index}`);
-    client.send({ type: 'joinRoom', roomId: '3' });
+    client.send({ type: 'joinRoom', roomId: '1' });
     await client.waitFor('roomJoined');
     clients.push(client);
   }
@@ -177,10 +214,12 @@ test('开局后主动退出会释放身份，全部退出后原房号恢复为�
     client.send({ type: 'leaveRoom' });
     await client.waitFor('leftRoom');
   }
-  const room = fixture.app.rooms.get('3');
-  assert.equal(room.game, null);
-  assert.equal(room.members.length, 0);
+  assert.equal(fixture.app.rooms.has('1'), false, '全员退出后房间应被关闭清除');
 
+  // 重建房间：空号 1 被复用
+  clients[0].send({ type: 'createRoom', dlcEnabled: false });
+  const created = await clients[0].waitFor('roomCreated');
+  assert.equal(created.roomId, '1');
   clients[0].send({ type: 'joinRoom', roomId: '1' });
   const joinedAgain = await clients[0].waitFor('roomJoined');
   assert.equal(joinedAgain.roomId, '1');
@@ -188,7 +227,10 @@ test('开局后主动退出会释放身份，全部退出后原房号恢复为�
 
 test('房主DLC开关同步、非房主拒绝、开局锁定，任务与重连状态保持',async t=>{
   const f=await createFixture(t),clients=[];
-  for(let i=0;i<2;i++){
+  const first=await f.client();await guest(first,'扩展玩家0','dlc_device_00000000000');
+  first.send({type:'createRoom',dlcEnabled:false});await first.waitFor('roomCreated');
+  first.send({type:'joinRoom',roomId:'1'});await first.waitFor('roomJoined');clients.push(first);
+  for(let i=1;i<2;i++){
     const c=await f.client();await guest(c,`扩展玩家${i}`,`dlc_device_00000000000${i}`);
     c.send({type:'joinRoom',roomId:'1'});await c.waitFor('roomJoined');clients.push(c);
   }
@@ -224,6 +266,7 @@ test('房间聊天：广播、历史、校验、限流，等待与对局中均�
   const f = await createFixture(t);
   const a = await f.client(); await guest(a, '聊天甲', 'chat_device_0000000001');
   const b = await f.client(); await guest(b, '聊天乙', 'chat_device_0000000002');
+  a.send({ type: 'createRoom', dlcEnabled: false }); await a.waitFor('roomCreated');
   a.send({ type: 'joinRoom', roomId: '1' }); await a.waitFor('roomJoined');
   const emptyHistory = await a.waitFor('chatHistory'); assert.deepEqual(emptyHistory.messages, []);
   b.send({ type: 'joinRoom', roomId: '1' }); await b.waitFor('roomJoined');
@@ -280,6 +323,8 @@ test('房主添加人机满员自动开局，人机自动行动且不发聊天',
   const f = await createFixture(t, { botTurnDelayMs: 5, botJitterMs: 0 });
   const host = await f.client();
   await guest(host, '房主甲', 'bot_host_device_0001');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  await host.waitFor('roomCreated');
   host.send({ type: 'joinRoom', roomId: '1' });
   await host.waitFor('roomJoined');
   await host.waitFor('chatHistory');
@@ -304,7 +349,9 @@ test('DLC 对局：人机自动选择角色与任务并正常行动', async t =>
   const f = await createFixture(t, { botTurnDelayMs: 5, botJitterMs: 0 });
   const host = await f.client();
   await guest(host, '房主乙', 'botdlc_host_00001');
-  host.send({ type: 'joinRoom', roomId: '2' });
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  await host.waitFor('roomCreated');
+  host.send({ type: 'joinRoom', roomId: '1' });
   await host.waitFor('roomJoined');
   await host.waitFor('chatHistory');
   host.send({ type: 'setDlc', enabled: true });
@@ -317,7 +364,7 @@ test('DLC 对局：人机自动选择角色与任务并正常行动', async t =>
   assert.ok(firstState.game.dlc.selecting, '开局应先进入选择阶段');
   // 等待人机自动完成选择
   await new Promise(resolve => setTimeout(resolve, 1500));
-  const game = f.app.rooms.get('2').game;
+  const game = f.app.rooms.get('1').game;
   assert.ok(game.players.slice(1).every(p => p.dlc.roleChosen && p.dlc.taskId), '人机应自动完成角色与任务选择');
   host.send({ type: 'chooseTask', taskId: game.players[0].dlc.taskOptions[0] });
   host.send({ type: 'chooseRole', role: game.players[0].dlc.roleOptions[0] });
@@ -332,10 +379,12 @@ test('人机管理：非房主不可操作、可移除、房主可手动开局',
   await guest(host, '房主丙', 'botm_host_0000001');
   const other = await f.client();
   await guest(other, '访客丁', 'botm_guest_00001');
-  host.send({ type: 'joinRoom', roomId: '3' });
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  await host.waitFor('roomCreated');
+  host.send({ type: 'joinRoom', roomId: '1' });
   await host.waitFor('roomJoined');
   await host.waitFor('chatHistory');
-  other.send({ type: 'joinRoom', roomId: '3' });
+  other.send({ type: 'joinRoom', roomId: '1' });
   await other.waitFor('roomJoined');
   await other.waitFor('chatHistory');
   // 非房主添加人机被拒
@@ -363,20 +412,20 @@ test('人机管理：非房主不可操作、可移除、房主可手动开局',
   assert.equal(state.game.players.length, 3);
   assert.equal(state.game.players[2].bot, true);
   assert.equal(state.game.players[2].difficulty, 'normal');
-  // 房主离开后，人机应随房间复位清空
+  // 房主离开后，人机随房间复位清空（全员退出后房间关闭）
   host.send({ type: 'leaveRoom' });
   await host.waitFor('leftRoom');
   other.send({ type: 'leaveRoom' });
   await other.waitFor('leftRoom');
-  const room = f.app.rooms.get('3');
-  assert.equal(room.game, null);
-  assert.equal(room.members.filter(m => m.isBot).length, 0);
+  assert.equal(f.app.rooms.has('1'), false, '全员退出后房间应关闭清除');
 });
 
 test('人机编号按空位复用：同一难度最多1-3号，移除后补用最小空号', async t => {
   const f = await createFixture(t);
   const host = await f.client();
   await guest(host, '房主戊', 'botseq_host_00001');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  await host.waitFor('roomCreated');
   host.send({ type: 'joinRoom', roomId: '1' });
   await host.waitFor('roomJoined');
   await host.waitFor('chatHistory');
@@ -402,6 +451,10 @@ test('人机编号按空位复用：同一难度最多1-3号，移除后补用�
   // 房主退出复位后重开一局：移除 2 号后再添加，应补用 2 号而不是 4 号
   host.send({ type: 'leaveRoom' });
   await host.waitFor('leftRoom');
+  assert.equal(f.app.rooms.has('1'), false, '全员退出后房间应关闭');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  const created = await host.waitFor('roomCreated');
+  assert.equal(created.roomId, '1', '空号应被复用');
   host.send({ type: 'joinRoom', roomId: '1' });
   await host.waitFor('roomJoined');
   await host.waitFor('chatHistory');
@@ -416,4 +469,47 @@ test('人机编号按空位复用：同一难度最多1-3号，移除后补用�
   assert.ok(waiting.players.some(p => p.bot && p.name === '简单人机·2'), '移除 2 号后再次添加应补用 2 号');
   host.send({ type: 'leaveRoom' });
   await host.waitFor('leftRoom');
+});
+
+test('房主退出后房主身份转接给列表第一位玩家，人机保留，全员退出后房间关闭', async t => {
+  const f = await createFixture(t);
+  const a = await f.client(); await guest(a, '房主一', 'hostmove_a_000001');
+  const b = await f.client(); await guest(b, '玩家二', 'hostmove_b_000001');
+  const c = await f.client(); await guest(c, '玩家三', 'hostmove_c_000001');
+  a.send({ type: 'createRoom', dlcEnabled: false });
+  const roomId = String((await a.waitFor('roomCreated')).roomId);
+  a.send({ type: 'joinRoom', roomId }); await a.waitFor('roomJoined'); await a.waitFor('chatHistory');
+  b.send({ type: 'joinRoom', roomId }); await b.waitFor('roomJoined'); await b.waitFor('chatHistory');
+  c.send({ type: 'joinRoom', roomId }); await c.waitFor('roomJoined'); await c.waitFor('chatHistory');
+  // 三人等待房：房主退出 → 身份转接给玩家二（列表第一位）
+  a.send({ type: 'leaveRoom' }); await a.waitFor('leftRoom');
+  const waiting = await b.waitFor('waiting', m => m.players.length === 2 && m.players[0].name === '玩家二');
+  assert.equal(waiting.hostId, 0, '玩家二重排为 0 号位并成为新房主');
+  // 玩家二退出：房主继续转接给玩家三
+  b.send({ type: 'leaveRoom' }); await b.waitFor('leftRoom');
+  const waiting3 = await c.waitFor('waiting', m => m.players.length === 1 && m.players[0].name === '玩家三');
+  assert.equal(waiting3.hostId, 0);
+  // 最后一人退出：房间关闭
+  c.send({ type: 'leaveRoom' }); await c.waitFor('leftRoom');
+  assert.equal(f.app.rooms.has(roomId), false, '全员退出后房间应关闭');
+
+  // 房主退出时人机保留，新房主可管理人机
+  a.send({ type: 'createRoom', dlcEnabled: false });
+  const created = await a.waitFor('roomCreated');
+  assert.equal(created.roomId, roomId, '空号应被复用');
+  a.send({ type: 'joinRoom', roomId }); await a.waitFor('roomJoined'); await a.waitFor('chatHistory');
+  b.send({ type: 'joinRoom', roomId }); await b.waitFor('roomJoined'); await b.waitFor('chatHistory');
+  a.send({ type: 'addBot', difficulty: 'easy' });
+  await b.waitFor('waiting', m => m.players.length === 3 && m.players.some(p => p.bot));
+  a.send({ type: 'leaveRoom' }); await a.waitFor('leftRoom');
+  const waitingBot = await b.waitFor('waiting', m =>
+    m.players.length === 2 && m.players.some(p => p.bot) && m.players[0].name === '玩家二');
+  assert.equal(waitingBot.hostId, 0);
+  assert.equal(waitingBot.players.filter(p => p.bot).length, 1, '人机应保留');
+  // 新房主可以移除人机
+  b.send({ type: 'removeBot', playerId: waitingBot.players.find(p => p.bot).id });
+  await b.waitFor('waiting', m => !m.players.some(p => p.bot));
+  b.send({ type: 'leaveRoom' }); await b.waitFor('leftRoom');
+  assert.equal(f.app.rooms.has(roomId), false, '全员退出后房间应关闭');
+  assert.ok(f.app.rooms.has('test'), '测试房应始终保留');
 });

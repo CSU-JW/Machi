@@ -10,7 +10,6 @@ const { AuthStore, AuthError, cleanNickname } = require('./auth-store');
 const B = require('./bots');
 
 const MAX_PLAYERS = 4;
-const INITIAL_ROOM_COUNT = 3;
 const WAITING_SEAT_TTL_MS = 30_000;
 const GAME_SEAT_TTL_MS = 10 * 60_000;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -26,16 +25,33 @@ function createMachiServer(options = {}) {
   const botJitterMs = options.botJitterMs ?? 600;
   const rooms = new Map();
   const sessions = new Map();
-  let nextRoomId = 1;
 
+  // 房间编号从 1 开始，取最小空闲编号（关闭后的空号会被复用）
   function createRoom(dlcEnabled = false) {
-    const id = String(nextRoomId++);
-    const room = { id, members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [], botTimer: null };
-    rooms.set(id, room);
+    let id = 1;
+    while (rooms.has(String(id))) id += 1;
+    const room = { id: String(id), members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [], botTimer: null };
+    rooms.set(room.id, room);
     return room;
   }
 
-  for (let i = 0; i < INITIAL_ROOM_COUNT; i += 1) createRoom();
+  // 关闭并清除房间：测试房永不关闭，只复位保留
+  function closeRoom(room) {
+    if (room.taskTimer) clearTimeout(room.taskTimer);
+    if (room.botTimer) clearTimeout(room.botTimer);
+    room.botTimer = null;
+    if (room.testRoom) {
+      room.members = [];
+      room.game = null;
+      room.chatLog = [];
+      room.dlcEnabled = false;
+      console.log('[reset] 单人测试房已复位（保留）');
+      return;
+    }
+    rooms.delete(room.id);
+    console.log(`[close] 房间 ${room.id} 已关闭清除`);
+  }
+
   rooms.set('test',{id:'test',members:[],game:null,dlcEnabled:false,testRoom:true,chatLog:[],botTimer:null});
 
   function readCookie(header, name) {
@@ -325,15 +341,14 @@ function createMachiServer(options = {}) {
   function removeWaitingMember(room, member) {
     if (room.game) return;
     if (member.cleanupTimer) clearTimeout(member.cleanupTimer);
-    const wasHost = room.members[0] === member;
     room.members = room.members.filter(item => item !== member);
-    if (wasHost) {
-      const bots = room.members.filter(item => item.isBot);
-      if (bots.length) {
-        room.members = room.members.filter(item => !item.isBot);
-        console.log(`[bot] 房间 ${room.id} 房主离开，移除 ${bots.length} 名人机`);
-      }
+    if (!room.members.some(item => !item.isBot)) {
+      // 没有真人玩家（只剩人机无人接管）：直接关闭房间
+      closeRoom(room);
+      broadcastLobby();
+      return;
     }
+    // 房主身份自动转接给列表第一位玩家，人机保留
     reindexWaitingRoom(room);
     sendWaiting(room);
     broadcastLobby();
@@ -350,14 +365,8 @@ function createMachiServer(options = {}) {
     room.game.players[member.playerId].connected = false;
 
     if (room.members.every(item => !item.identityKey)) {
-      room.members = [];
-      room.game = null;
-      room.chatLog = [];
-      if(room.taskTimer)clearTimeout(room.taskTimer);
-      if(room.botTimer)clearTimeout(room.botTimer);
-      room.botTimer = null;
-      room.dlcEnabled = false;
-      console.log(`[reset] 房间 ${room.id} 已恢复为空房`);
+      // 所有真人玩家都已离场：普通房间直接关闭清除，测试房复位保留
+      closeRoom(room);
     } else {
       broadcastGame(room);
     }

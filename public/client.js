@@ -234,6 +234,12 @@ function renderLobby(rooms) {
     card.append(title, count, players, button);
     container.appendChild(card);
   }
+  if (!rooms.some(room => !room.testRoom)) {
+    const hint = document.createElement('div');
+    hint.className = 'room-empty-hint';
+    hint.textContent = '暂无开放房间：点击上方「创建房间」开启新房间（空房在所有人退出后自动关闭，编号从 1 复用）。';
+    container.appendChild(hint);
+  }
 }
 
 function renderWaiting(msg) {
