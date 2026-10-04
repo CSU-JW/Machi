@@ -132,6 +132,15 @@ body::before {
 
 .players { align-items: stretch; }
 
+/* 4 人对局：玩家面板排成 2×2；卡牌图鉴货架横跨两列 */
+.players.count-4 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.players.count-4 .player { min-width: 0; }
+.players.count-4 .market-shelf { grid-column: 1 / -1; }
+
 .player {
   min-width: 260px;
   border: 2px solid rgba(119,95,70,.2);

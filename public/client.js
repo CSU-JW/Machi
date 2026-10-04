@@ -652,6 +652,7 @@ function render() {
 
   const playersElement = document.getElementById('players');
   playersElement.replaceChildren();
+  playersElement.classList.toggle('count-4', game.players.length === 4);
   game.players.forEach((player, index) => {
     const playerPanel = document.createElement('div');
     playerPanel.className = `player${index === game.current && !game.gameOver ? ' active' : ''}${player.connected === false ? ' offline' : ''}`;
