@@ -103,11 +103,30 @@ function valueOfSum(game, me, sum, count = 1) {
   return value;
 }
 
+// 规划期望：掷出 sum 后的当前净收益，加上“掷出后可购买的最优新卡”的未来期望收益。
+// 没有 7 点以上卡时人机永远无法触发双骰收益，因此必须把“投双骰→买下对应卡→后续收益”计入期望。
+function plannedRollValue(game, me, sum, count = 1) {
+  let value = valueOfSum(game, me, sum, count);
+  let bestUnlock = 0;
+  for (const id of Object.keys(game.cardPool)) {
+    if ((game.cardPool[id] || 0) <= 0) continue;
+    const card = CARDS[id];
+    if (!card || !card.points.includes(sum)) continue;
+    if (card.dlc && !game.dlcEnabled) continue;
+    if (SIX_CARDS.includes(id) && countOf(me, id) > 0) continue;
+    const quote = bestQuote(game, me, 'buy', id, card.cost);
+    if (me.money < quote.cost) continue;
+    // 能买且值得买：计入该卡未来每轮的期望收益
+    bestUnlock = Math.max(bestUnlock, roundEv(game, me, id));
+  }
+  return value + bestUnlock;
+}
+
 function avgRollValue(game, me, count) {
   const profile = count === 2 ? P2 : P1;
   let total = 0;
   const maxSum = count === 2 ? 12 : 6;
-  for (let s = count; s <= maxSum; s += 1) total += profile(s) * valueOfSum(game, me, s, count);
+  for (let s = count; s <= maxSum; s += 1) total += profile(s) * plannedRollValue(game, me, s, count);
   return total;
 }
 
@@ -143,27 +162,52 @@ function bestQuote(game, player, kind, id, cost) {
 // ---------- 掷骰与选择 ----------
 function decideRollCount(game, player, difficulty) {
   if (!player.landmarks.train) return 1;
-  // 简单：粗略判断——自己拥有 7 点及以上可触发的卡时才投两个骰子
+  // 简单：粗略判断——自己已持有 7 点以上卡，或牌堆里有买得起的 7 点以上卡（买了才有双骰收益）
   if (difficulty === 'easy') {
-    const hasHighCard = Object.keys(player.cards).some(id =>
+    const hasHighOwned = Object.keys(player.cards).some(id =>
       countOf(player, id) > 0
       && CARDS[id]
       && CARDS[id].trigger === 'self'
       && CARDS[id].points.some(pt => pt >= 7));
-    return hasHighCard ? 2 : 1;
+    if (hasHighOwned) return 2;
+    const highBuyable = Object.keys(game.cardPool).some((id) => {
+      const card = CARDS[id];
+      if (!card || (game.cardPool[id] || 0) <= 0) return false;
+      if (card.dlc && !game.dlcEnabled) return false;
+      if (!card.points.some(pt => pt >= 7)) return false;
+      const quote = bestQuote(game, player, 'buy', id, card.cost);
+      return player.money >= quote.cost;
+    });
+    return highBuyable ? 2 : 1;
   }
-  // 普通/困难：比较单骰与双骰的期望收益（双骰期望已含收入修正）
+
+  // 普通/困难：比较“当前收益 + 买卡解锁收益”的规划期望（双骰期望已含收入修正）。
   const ev1 = avgRollValue(game, player, 1);
   const ev2 = avgRollValue(game, player, 2);
+  // 双骰探测溢价：还没有 7 点以上卡时，把“买得起的最优高点数卡的每轮期望”计入双骰收益，
+  // 否则高点数卡永远无法入手（7 点以上只有投双骰才能买到），人机会一直困在单骰。
+  let probeBonus = 0;
+  const hasHighOwned = Object.keys(player.cards).some(id =>
+    countOf(player, id) > 0 && CARDS[id] && CARDS[id].points.some(pt => pt >= 7));
+  if (!hasHighOwned) {
+    for (const id of Object.keys(game.cardPool)) {
+      const card = CARDS[id];
+      if (!card || (game.cardPool[id] || 0) <= 0) continue;
+      if (card.dlc && !game.dlcEnabled) continue;
+      if (!card.points.some(pt => pt >= 7)) continue;
+      const quote = bestQuote(game, player, 'buy', id, card.cost);
+      if (player.money >= quote.cost) probeBonus = Math.max(probeBonus, roundEv(game, player, id));
+    }
+  }
   if (difficulty === 'hard') {
     // 困难：落后于领跑者时更愿意承担双骰风险追分
     const leader = findLeader(game, player.id);
     const behind = Boolean(leader && (
       landmarkCount(leader) > landmarkCount(player)
       || (landmarkCount(leader) === landmarkCount(player) && leader.money > player.money + 3)));
-    return ev2 + (behind ? 0.5 : 0) > ev1 ? 2 : 1;
+    return ev2 + probeBonus + (behind ? 0.5 : 0) > ev1 ? 2 : 1;
   }
-  return ev2 > ev1 ? 2 : 1;
+  return ev2 + probeBonus > ev1 ? 2 : 1;
 }
 
 function decideChoice(game, player, difficulty) {
@@ -172,7 +216,7 @@ function decideChoice(game, player, difficulty) {
 
   if (choice.type === 'askReroll') {
     if (difficulty === 'easy') return { type: 'accept' };
-    const current = valueOfSum(game, player, game.dice.sum, game.dice.count);
+    const current = plannedRollValue(game, player, game.dice.sum, game.dice.count);
     let bestCount = 1;
     let bestValue = avgRollValue(game, player, 1);
     if (player.landmarks.train) {

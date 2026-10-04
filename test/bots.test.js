@@ -118,12 +118,24 @@ test('持有7点以上产业卡且有火车站时，各难度人机都选择投�
   }
 });
 
-test('没有7点以上卡时，普通人机比较期望后选择单骰', () => {
+test('初始卡且资金少时，普通人机比较规划期望后选择单骰', () => {
   const g = makeGame(['甲', '乙', '丙', '丁']);
   const p = g.players[0];
   p.landmarks.train = true;
-  // 初始只有麦田+面包店：单骰 EV=0.5，双骰 EV≈0.08
+  // 只有麦田+面包店、资金3：双骰能买的奶制品依赖牧场(0张)收益低，规划期望仍偏向单骰
   assert.equal(B.decideRollCount(g, p, 'normal'), 1);
-  // 简单难度在无高点数卡时也投单骰
+  // 简单：买得起的7点卡存在（奶制品3元）→ 双骰；资金1买不起 → 单骰
+  assert.equal(B.decideRollCount(g, p, 'easy'), 2);
+  p.money = 1;
   assert.equal(B.decideRollCount(g, p, 'easy'), 1);
+});
+
+test('没有7点卡但牧场多时，人机因“买卡解锁期望”选择投双骰', () => {
+  const g = makeGame(['甲', '乙', '丙', '丁']);
+  const p = g.players[0];
+  p.landmarks.train = true;
+  p.cards = { ranch: 2 }; // 牧场×2：双骰掷出7可买奶制品（每轮期望约0.78）
+  for (const difficulty of ['easy', 'normal', 'hard']) {
+    assert.equal(B.decideRollCount(g, p, difficulty), 2, `${difficulty} 应选择双骰`);
+  }
 });
