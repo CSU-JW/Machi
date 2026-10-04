@@ -117,7 +117,15 @@ body::before {
 }
 
 .dice-area {
-  margin: 18px 0;
+  margin: 14px 0 18px;
+  position: sticky;
+  top: 8px;
+  z-index: 20;
+  padding: 8px 6px 10px;
+  border-radius: 14px;
+  background: rgba(240, 248, 235, .88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 #dice {
