@@ -58,7 +58,8 @@
     .message { min-height: 22px; color: var(--danger); margin: 14px 0 0; text-align: center; font-size: 14px; }
     .helper { color: var(--muted); font-size: 13px; line-height: 1.6; }
 
-    #lobby, #waiting, #game { max-width: 1120px; margin: 0 auto; padding: 24px 16px 42px; }
+    #lobby, #waiting { max-width: 1120px; margin: 0 auto; padding: 24px 16px 42px; }
+    #game { max-width: 1380px; margin: 0 auto; padding: 24px 16px 42px; }
     .topbar { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 22px; }
     .topbar h2 { margin: 0; }
     .account-info { display: flex; align-items: center; gap: 10px; color: var(--muted); }
@@ -130,7 +131,7 @@
       .account-info { width: 100%; justify-content: space-between; }
     }
   </style>
-  <link rel="stylesheet" href="style.css?v=20261004-bots">
+  <link rel="stylesheet" href="style.css?v=20261004-layout">
 </head>
 <body>
   <section id="auth" class="screen active">
@@ -207,21 +208,25 @@
       <h2>梦想小镇 <span id="roomInfo"></span></h2>
       <div class="account-info"><span id="gameProfile" class="helper"></span><button id="leaveGameButton" class="danger-btn">退出本局</button></div>
     </div>
-    <div class="turn-banner" id="turnBanner"></div>
-    <div id="dlcPanel" class="dlc-panel" hidden></div>
-    <div class="dice-area"><span id="dice"></span></div>
-    <div class="players" id="players"></div>
-    <div class="actions" id="actions"></div>
-    <div class="log" id="log"></div>
-    <section class="chat" id="chat">
-      <div class="chat-head">💬 房间聊天<button id="chatToggle" type="button" aria-expanded="true">收起</button><span id="chatUnread" class="chat-unread" hidden></span></div>
-      <div class="chat-messages" id="chatMessages"></div>
-      <p id="chatError" class="chat-error"></p>
-      <form id="chatForm" class="chat-form">
-        <input id="chatInput" type="text" maxlength="300" placeholder="和房间里的玩家聊聊天…" autocomplete="off">
-        <button class="primary" type="submit">发送</button>
-      </form>
-    </section>
+    <div class="game-layout">
+      <div class="game-main">
+        <div class="turn-banner" id="turnBanner"></div>
+        <div id="dlcPanel" class="dlc-panel" hidden></div>
+        <div class="dice-area"><span id="dice"></span></div>
+        <div class="players" id="players"></div>
+        <div class="actions" id="actions"></div>
+        <div class="log" id="log"></div>
+      </div>
+      <section class="chat" id="chat">
+        <div class="chat-head">💬 房间聊天<button id="chatToggle" type="button" aria-expanded="true">收起</button><span id="chatUnread" class="chat-unread" hidden></span></div>
+        <div class="chat-messages" id="chatMessages"></div>
+        <p id="chatError" class="chat-error"></p>
+        <form id="chatForm" class="chat-form">
+          <input id="chatInput" type="text" maxlength="300" placeholder="和房间里的玩家聊聊天…" autocomplete="off">
+          <button class="primary" type="submit">发送</button>
+        </form>
+      </section>
+    </div>
   </section>
 
   <div id="cardModal" class="modal-layer" aria-hidden="true">

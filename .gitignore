@@ -6,3 +6,5 @@ test/.tmp-*/
 .python-deps/
 .pip-tmp/
 .pip-log*.txt
+.layout-*.png
+public/.layout-test.html

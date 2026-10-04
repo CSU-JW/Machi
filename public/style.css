@@ -529,6 +529,28 @@ body::before {
 .chat.collapsed .chat-messages, .chat.collapsed .chat-form, .chat.collapsed .chat-error { display: none; }
 .chat.collapsed .chat-head { margin-bottom: 0; }
 
+/* 对局布局：左侧/中间游戏区 + 右侧聊天侧边栏 */
+.game-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  align-items: start;
+}
+.game-main { min-width: 0; }
+.game-layout .chat {
+  margin: 0;
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.game-layout .chat-messages { height: clamp(260px, calc(100vh - 250px), 640px); }
+@media (max-width: 1060px) {
+  .game-layout { grid-template-columns: 1fr; }
+  .game-layout .chat { position: static; }
+  .game-layout .chat-messages { height: 190px; }
+}
+
 /* 人机 */
 .bot-controls {
   margin: 14px 0 0;
