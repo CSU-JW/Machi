@@ -336,6 +336,7 @@ function renderWaiting(msg) {
   const spectatorList = document.getElementById('waitingSpectators');
   spectatorList.replaceChildren();
   spectators.forEach((spec) => {
+    if (spec.seatKey && spec.seatKey === mySeatKey) return; // 自己的席位由下方“你（观战席）”行展示，避免重复
     const row = document.createElement('div');
     row.className = 'spectator-row';
     row.textContent = `👁 ${spec.name}${spec.connected === false ? ' · 离线' : ''}`;

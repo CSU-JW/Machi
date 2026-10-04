@@ -439,12 +439,21 @@ test('人机管理：非房主不可操作、可移除、房主可手动开局',
   assert.equal(state.game.players.length, 3);
   assert.equal(state.game.players[2].bot, true);
   assert.equal(state.game.players[2].difficulty, 'normal');
-  // 全员退出后房间关闭
+  // 所有真人参赛者退出：本局强制结束，人机保留在房间（不再关闭房间）
   host.send({ type: 'leaveRoom' });
   await host.waitFor('leftRoom');
   other.send({ type: 'leaveRoom' });
   await other.waitFor('leftRoom');
-  assert.equal(f.app.rooms.has('1'), false, '全员退出后房间应关闭清除');
+  assert.equal(f.app.rooms.get('1').game, null, '对局应被强制结束');
+  assert.equal(f.app.rooms.get('1').members.length, 1);
+  assert.ok(f.app.rooms.get('1').members[0].isBot, '人机应保留在房间');
+  // 新加入的真人玩家接管 0 号位成为房主
+  const late = await f.client();
+  await guest(late, '新玩家', 'botm_late_000001');
+  late.send({ type: 'joinRoom', roomId: '1' });
+  const lateJoined = await late.waitFor('roomJoined');
+  assert.equal(lateJoined.playerId, 0);
+  assert.equal(lateJoined.spectator, false);
 });
 
 test('满员不再自动开局：仅房主可确认开始，非房主开始被拒', async t => {
@@ -512,11 +521,14 @@ test('人机编号按空位复用：同一难度最多1-3号，移除后补用�
   // 房主退出复位后重开一局：移除 2 号后再添加，应补用 2 号而不是 4 号
   host.send({ type: 'leaveRoom' });
   await host.waitFor('leftRoom');
-  assert.equal(f.app.rooms.has('1'), false, '全员退出后房间应关闭');
+  // 只剩人机：对局强制结束，房间与 3 个人机保留
+  assert.ok(f.app.rooms.has('1'), '人机房间应保留');
+  assert.equal(f.app.rooms.get('1').game, null);
+  assert.equal(f.app.rooms.get('1').members.length, 3);
   host.send({ type: 'createRoom', dlcEnabled: false });
   const created = await host.waitFor('roomCreated');
-  assert.equal(created.roomId, '1', '空号应被复用');
-  host.send({ type: 'joinRoom', roomId: '1' });
+  assert.equal(created.roomId, '2', '1 号被人机房间占用，新房间应为 2 号');
+  host.send({ type: 'joinRoom', roomId: '2' });
   await host.waitFor('roomJoined');
   await host.waitFor('chatHistory');
   host.send({ type: 'addBot', difficulty: 'easy' });
@@ -697,6 +709,46 @@ test('对局结束自动返回等待房，参赛者与观战者席位保持不�
   host.send({ type: 'startGame' });
   const state2 = await host.waitFor('state', undefined, 5000);
   assert.equal(state2.game.players.length, 2);
+});
+
+test('对局中真人参赛者全部退出：强制结束回房，离场席位清除，观战者转房主', async t => {
+  const f = await createFixture(t);
+  const host = await f.client();
+  await guest(host, '房主', 'forceend_host_0001');
+  const p2 = await f.client();
+  await guest(p2, '玩家二', 'forceend_p2_00001');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  const roomId = String((await host.waitFor('roomCreated')).roomId);
+  host.send({ type: 'joinRoom', roomId });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  p2.send({ type: 'joinRoom', roomId });
+  await p2.waitFor('roomJoined');
+  await p2.waitFor('chatHistory');
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  await host.waitFor('waiting', m => m.players.some(p => p.bot));
+  host.send({ type: 'startGame' });
+  await host.waitFor('state');
+  const watcher = await f.client();
+  await guest(watcher, '观战者', 'forceend_w_0001');
+  watcher.send({ type: 'joinRoom', roomId });
+  await watcher.waitFor('roomJoined');
+  await watcher.waitFor('state');
+  // 两名真人参赛者先后退出：对局强制结束
+  host.send({ type: 'leaveRoom' });
+  await host.waitFor('leftRoom');
+  p2.send({ type: 'leaveRoom' });
+  await p2.waitFor('leftRoom');
+  const waiting = await watcher.waitFor('waiting', m => !m.gameRunning, 5000);
+  assert.equal(f.app.rooms.get(roomId).game, null, '对局应被强制结束');
+  assert.equal(waiting.players.length, 2);
+  assert.equal(waiting.players[0].name, '观战者', '观战者应转为 0 号位房主');
+  assert.equal(waiting.players[1].bot, true, '人机应保留');
+  assert.equal(waiting.spectators.length, 0);
+  assert.ok(!waiting.players.some(p => p.name === '房主' || p.name === '玩家二'), '离场席位应清除，不再显示离线');
+  // 系统聊天提示
+  const sys = await watcher.waitFor('chat', m => m.system === true && m.text.includes('强制结束'), 5000);
+  assert.ok(sys.text.includes('返回房间'));
 });
 
 test('等待房满员后新玩家自动进入观战席，界面数据与正常房间一致', async t => {

@@ -237,6 +237,7 @@ function createMachiServer(options = {}) {
         name: member.name,
         avatar: member.avatar,
         connected: member.connected,
+        seatKey: member.seatKey,
       })),
     };
   }
@@ -424,9 +425,12 @@ function createMachiServer(options = {}) {
       return;
     }
     if (!room.members.some(item => !item.isBot && !item.isSpectator)) {
-      // 没有真人参赛玩家：第一位真人观战者自动转为参赛席（保证房主存在）
+      // 没有真人参赛玩家：第一位真人观战者自动转为参赛席（移到最前成为房主）
       const spectator = room.members.find(item => !item.isBot && item.isSpectator);
-      if (spectator) spectator.isSpectator = false;
+      if (spectator) {
+        spectator.isSpectator = false;
+        room.members = [spectator, ...room.members.filter(item => item !== spectator)];
+      }
     }
     // 房主身份自动转接给列表第一位玩家，人机保留
     reindexWaitingRoom(room);
@@ -445,11 +449,22 @@ function createMachiServer(options = {}) {
     room.game.players[member.playerId].connected = false;
 
     const remainingHumans = room.members.filter(item => item.identityKey);
-    if (!remainingHumans.length) {
-      // 所有真人玩家都已离场：普通房间直接关闭清除，测试房复位保留
+    if (!remainingHumans.length && !room.members.some(item => item.isBot)) {
+      // 房间里没有任何真人玩家也没有人机：普通房间直接关闭清除，测试房复位保留
       closeRoom(room);
     } else if (!remainingHumans.some(item => !item.isSpectator)) {
-      // 没有真人参赛玩家了：对局无法继续，全员回到等待房（观战者保留）
+      // 所有真人参赛玩家都已离场（可能只剩人机/观战者）：
+      // 强制结束本局，清理已离场的参赛席位（不再显示离线），人机保留，观战者自动转为参赛房主
+      room.members = room.members.filter(item => item.identityKey || item.isBot);
+      if (!room.members.some(item => !item.isBot && !item.isSpectator)) {
+        const spectator = room.members.find(item => !item.isBot && item.isSpectator);
+        if (spectator) {
+          spectator.isSpectator = false;
+          room.members = [spectator, ...room.members.filter(item => item !== spectator)];
+        }
+      }
+      reindexWaitingRoom(room);
+      broadcastChat(room, { system: true, text: '所有参赛玩家已退出，本局强制结束，返回房间', ts: Date.now() });
       resetGameToWaiting(room);
     } else {
       broadcastGame(room);
@@ -640,7 +655,12 @@ function createMachiServer(options = {}) {
     for (let i = 0; i < room.members.length; i += 1) {
       if (room.members[i].isSpectator) { insertIndex = i; break; }
     }
+    if (room.members[0]?.isBot) {
+      // 房间只有人机没有真人房主：新参赛者接管 0 号位成为房主
+      insertIndex = 0;
+    }
     room.members.splice(insertIndex, 0, member);
+    if (insertIndex === 0) reindexWaitingRoom(room);
     console.log(`[join] 房间 ${room.id}，${member.name}，当前人数 ${participantCount + 1}`);
     attachToMember(ws, room, member, false);
   }
