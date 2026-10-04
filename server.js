@@ -7,6 +7,7 @@ const E = require('./engine');
 const D = require('./dlc1/runtime');
 const { CARDS, LANDMARKS } = require('./cards');
 const { AuthStore, AuthError, cleanNickname } = require('./auth-store');
+const B = require('./bots');
 
 const MAX_PLAYERS = 4;
 const INITIAL_ROOM_COUNT = 3;
@@ -21,19 +22,21 @@ function createMachiServer(options = {}) {
   const publicDir = options.publicDir || path.join(__dirname, 'public');
   const dataDir = options.dataDir || process.env.MACHI_DATA_DIR || path.join(__dirname, 'data');
   const authStore = options.authStore || new AuthStore(path.join(dataDir, 'accounts.json'));
+  const botTurnDelayMs = options.botTurnDelayMs ?? 1100;
+  const botJitterMs = options.botJitterMs ?? 600;
   const rooms = new Map();
   const sessions = new Map();
   let nextRoomId = 1;
 
   function createRoom(dlcEnabled = false) {
     const id = String(nextRoomId++);
-    const room = { id, members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [] };
+    const room = { id, members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [], botSeqs: {}, botTimer: null };
     rooms.set(id, room);
     return room;
   }
 
   for (let i = 0; i < INITIAL_ROOM_COUNT; i += 1) createRoom();
-  rooms.set('test',{id:'test',members:[],game:null,dlcEnabled:false,testRoom:true,chatLog:[]});
+  rooms.set('test',{id:'test',members:[],game:null,dlcEnabled:false,testRoom:true,chatLog:[],botSeqs:{},botTimer:null});
 
   function readCookie(header, name) {
     const cookies = String(header || '').split(';');
@@ -120,7 +123,7 @@ function createMachiServer(options = {}) {
   }
 
   function roomSummary(room) {
-    const activeMembers = room.members.filter(member => member.identityKey);
+    const activeMembers = room.members.filter(member => member.identityKey || member.isBot);
     return {
       id: room.id,
       playerCount: activeMembers.length,
@@ -128,7 +131,7 @@ function createMachiServer(options = {}) {
       testRoom: Boolean(room.testRoom),
       dlcEnabled: room.dlcEnabled,
       status: room.game ? 'playing' : 'waiting',
-      players: activeMembers.map(member => member.name),
+      players: activeMembers.map(member => (member.isBot ? `🤖${member.name}` : member.name)),
     };
   }
 
@@ -156,6 +159,7 @@ function createMachiServer(options = {}) {
     for (const member of room.members) {
       if (member.socket && member.socket.readyState === WebSocket.OPEN) member.socket.send(payload);
     }
+    scheduleBotDrive(room);
   }
 
   function sendWaiting(room) {
@@ -172,6 +176,8 @@ function createMachiServer(options = {}) {
         name: member.name,
         avatar: member.avatar,
         connected: member.connected,
+        bot: member.isBot === true,
+        difficulty: member.botDifficulty || null,
       })),
     };
     for (const member of room.members) {
@@ -319,7 +325,15 @@ function createMachiServer(options = {}) {
   function removeWaitingMember(room, member) {
     if (room.game) return;
     if (member.cleanupTimer) clearTimeout(member.cleanupTimer);
+    const wasHost = room.members[0] === member;
     room.members = room.members.filter(item => item !== member);
+    if (wasHost) {
+      const bots = room.members.filter(item => item.isBot);
+      if (bots.length) {
+        room.members = room.members.filter(item => !item.isBot);
+        console.log(`[bot] 房间 ${room.id} 房主离开，移除 ${bots.length} 名人机`);
+      }
+    }
     reindexWaitingRoom(room);
     sendWaiting(room);
     broadcastLobby();
@@ -340,6 +354,8 @@ function createMachiServer(options = {}) {
       room.game = null;
       room.chatLog = [];
       if(room.taskTimer)clearTimeout(room.taskTimer);
+      if(room.botTimer)clearTimeout(room.botTimer);
+      room.botTimer = null;
       room.dlcEnabled = false;
       console.log(`[reset] 房间 ${room.id} 已恢复为空房`);
     } else {
@@ -363,7 +379,28 @@ function createMachiServer(options = {}) {
       if (member.socket) member.socket.playerId = index;
       room.game.players[index].connected = member.connected;
       room.game.players[index].avatar = member.avatar;
+      if (member.isBot) {
+        room.game.players[index].bot = true;
+        room.game.players[index].difficulty = member.botDifficulty;
+      }
     });
+    // 人机在开局时自动选择 DLC 角色与任务
+    if (room.game.dlc?.selecting) {
+      const startedGame = room.game;
+      let delay = 400;
+      room.members.forEach((member, index) => {
+        if (!member.isBot) return;
+        const timer = setTimeout(() => {
+          if (room.game !== startedGame || !room.game.dlc?.selecting) return;
+          const player = room.game.players[index];
+          if (player.dlc && !player.dlc.roleChosen) D.chooseRole(room.game, index, B.chooseRole(room.game, player, member.botDifficulty));
+          if (player.dlc && !player.dlc.taskId) D.chooseTask(room.game, index, B.chooseTask(room.game, player, member.botDifficulty));
+          broadcastGame(room);
+        }, delay);
+        timer.unref?.();
+        delay += 250;
+      });
+    }
     console.log(`[start] 房间 ${room.id} 开局`);
     broadcastGame(room);
     broadcastLobby();
@@ -591,6 +628,116 @@ function createMachiServer(options = {}) {
     }
   }
 
+  // ---------- 人机驱动 ----------
+  function botDelay() {
+    return botTurnDelayMs + Math.floor(Math.random() * botJitterMs);
+  }
+
+  function scheduleBotDrive(room) {
+    if (room.botTimer) {
+      clearTimeout(room.botTimer);
+      room.botTimer = null;
+    }
+    const game = room.game;
+    if (!game || game.gameOver || game.dlc?.selecting) return;
+    const member = room.members[game.current];
+    if (!member || !member.isBot) return;
+    room.botTimer = setTimeout(() => {
+      room.botTimer = null;
+      driveBotTurn(room);
+    }, botDelay());
+    room.botTimer.unref?.();
+  }
+
+  function driveBotTurn(room) {
+    const game = room.game;
+    if (!game || game.gameOver || game.dlc?.selecting) return;
+    const member = room.members[game.current];
+    if (!member || !member.isBot) return;
+    const player = game.players[game.current];
+
+    // 1. 待选抉择（重掷/体育馆/电视塔/商场）
+    if (game.pendingChoice) {
+      const choice = B.decideChoice(game, player, member.botDifficulty);
+      let result = null;
+      if (choice) {
+        result = E.handleChoice(game, player.id, choice);
+        if (!result.ok) {
+          console.error(`[bot] 房间 ${room.id} 抉择失败：${result.error} ${JSON.stringify(choice)}`);
+          result = null;
+        }
+      }
+      if (!result) {
+        // 兜底：接受当前点数并完成结算，避免卡死
+        if (!game.settled && game.dice) {
+          const settled = E.settle(game, player.id, game.dice.sum);
+          game.log.push(...settled.events.map(text => ({ text, turn: game.turnNumber })));
+          game.settled = true;
+        }
+        game.pendingChoice = null;
+      } else {
+        game.log.push(...result.events.map(text => ({ text, turn: game.turnNumber })));
+        game.pendingChoice = result.needChoice || null;
+      }
+      broadcastGame(room);
+      return;
+    }
+
+    // 2. 掷骰
+    if (!game.dice) {
+      const count = B.decideRollCount(game, player, member.botDifficulty);
+      game.dice = { ...E.rollDice(count), firstCount: count };
+      game.rerolled = false;
+      game.settled = false;
+      if (E.canReroll(game, player)) {
+        game.pendingChoice = { type: 'askReroll', rollerId: player.id };
+      } else {
+        const result = E.settle(game, player.id, game.dice.sum);
+        game.log.push(...result.events.map(text => ({ text, turn: game.turnNumber })));
+        game.settled = true;
+        if (result.needChoice) game.pendingChoice = result.needChoice;
+      }
+      broadcastGame(room);
+      return;
+    }
+
+    // 3. 结算后：会计技能 → 购卡 → 建设 → 结束回合
+    if (game.settled) {
+      if (game.dlc && player.dlc?.role === 4 && D.useRole(game, player).ok) {
+        broadcastGame(room);
+        return;
+      }
+      if (!game.boughtThisTurn) {
+        const buy = B.decideBuy(game, player, member.botDifficulty);
+        if (buy && E.canBuy(game, buy.cardId, buy.source).ok) {
+          E.buyCard(game, buy.cardId, buy.source);
+          broadcastGame(room);
+          return;
+        }
+      }
+      if (!game.builtThisTurn) {
+        const build = B.decideBuild(game, player, member.botDifficulty);
+        if (build && E.canBuild(game, build.landmarkId, build.source).ok) {
+          E.buildLandmark(game, build.landmarkId, build.source);
+          broadcastGame(room);
+          return;
+        }
+      }
+      if (game.pendingChoice) {
+        broadcastGame(room);
+        return;
+      }
+      if (E.isWin(player)) {
+        broadcastGame(room);
+        return;
+      }
+      E.endTurn(game);
+      broadcastGame(room);
+      return;
+    }
+    broadcastGame(room);
+  }
+
   function disconnectFromRoom(ws) {
     const room = rooms.get(ws.roomId);
     if (!room || ws.playerId === null) return;
@@ -678,6 +825,60 @@ function createMachiServer(options = {}) {
         if(!['dog','chick','fish','duck'].includes(msg.avatar))return sendError(ws,'无效头像');
         member.avatar=msg.avatar;
         if(room.game){room.game.players[ws.playerId].avatar=msg.avatar;broadcastGame(room);}else sendWaiting(room);
+        return;
+      }
+      if (msg.type === 'addBot') {
+        const room = rooms.get(ws.roomId);
+        if (!room) return sendError(ws, '你当前不在房间中', 'NOT_IN_ROOM');
+        if (room.game) return sendError(ws, '游戏已经开始', 'ROOM_STARTED');
+        if (room.testRoom) return sendError(ws, '测试房间不能添加人机', 'TEST_ROOM');
+        if (room.members[0]?.socket !== ws) return sendError(ws, '只有房主可以添加人机', 'HOST_ONLY');
+        const difficulty = String(msg.difficulty || '');
+        if (!B.DIFFICULTIES.includes(difficulty)) return sendError(ws, '人机难度无效', 'INVALID_BOT');
+        if (room.members.length >= MAX_PLAYERS) return sendError(ws, '房间已满，没有空位', 'ROOM_FULL');
+        const seq = (room.botSeqs[difficulty] || 0) + 1;
+        room.botSeqs[difficulty] = seq;
+        const member = {
+          playerId: room.members.length,
+          identityKey: null,
+          deviceIds: new Set(),
+          name: `${B.BOT_LABELS[difficulty]}人机·${seq}`,
+          avatar: ['dog','chick','fish','duck'][room.members.length],
+          connected: true,
+          socket: null,
+          cleanupTimer: null,
+          isBot: true,
+          botDifficulty: difficulty,
+        };
+        room.members.push(member);
+        console.log(`[bot] 房间 ${room.id} 添加${B.BOT_LABELS[difficulty]}人机，当前人数 ${room.members.length}`);
+        sendWaiting(room);
+        broadcastLobby();
+        if (room.members.length === MAX_PLAYERS) startGame(room);
+        return;
+      }
+      if (msg.type === 'removeBot') {
+        const room = rooms.get(ws.roomId);
+        if (!room) return sendError(ws, '你当前不在房间中', 'NOT_IN_ROOM');
+        if (room.game) return sendError(ws, '游戏已经开始', 'ROOM_STARTED');
+        if (room.members[0]?.socket !== ws) return sendError(ws, '只有房主可以移除人机', 'HOST_ONLY');
+        const index = Number(msg.playerId);
+        const target = room.members[index];
+        if (!target || !target.isBot) return sendError(ws, '该席位不是人机', 'INVALID_BOT');
+        room.members.splice(index, 1);
+        reindexWaitingRoom(room);
+        sendWaiting(room);
+        broadcastLobby();
+        return;
+      }
+      if (msg.type === 'startGame') {
+        const room = rooms.get(ws.roomId);
+        if (!room) return sendError(ws, '你当前不在房间中', 'NOT_IN_ROOM');
+        if (room.game) return sendError(ws, '游戏已经开始', 'ROOM_STARTED');
+        if (room.members[0]?.socket !== ws) return sendError(ws, '只有房主可以开始游戏', 'HOST_ONLY');
+        if (room.members.length < 2) return sendError(ws, '至少需要 2 名玩家才能开始', 'NOT_ENOUGH_PLAYERS');
+        if (!room.members.some(member => member.isBot)) return sendError(ws, '当前房间没有人机，请等待玩家加入', 'NO_BOT');
+        startGame(room);
         return;
       }
       if (['roll', 'choice', 'buy', 'build', 'endTurn', 'chooseTask', 'chooseRole', 'useRole'].includes(msg.type)) {

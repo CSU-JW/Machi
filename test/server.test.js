@@ -54,9 +54,9 @@ class TestClient {
   }
 }
 
-async function createFixture(t) {
+async function createFixture(t, serverOptions = {}) {
   const dataDir = fs.mkdtempSync(path.join(__dirname, '.tmp-server-'));
-  const app = createMachiServer({ dataDir });
+  const app = createMachiServer({ dataDir, ...serverOptions });
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address();
   const clients = [];
@@ -262,4 +262,113 @@ test('房间聊天：广播、历史、校验、限流，等待与对局中均�
   b.send({ type: 'chat', text: '开局啦' });
   assert.equal((await a.waitFor('chat', m => m.text === '开局啦')).name, '聊天乙');
   assert.equal((await d.waitFor('chat', m => m.text === '开局啦')).text, '开局啦');
+});
+
+// 驱动房主自己的回合，其余回合交给人机，直到指定回合数。
+async function driveHumanTurns(host, state, targetTurn) {
+  for (let i = 0; i < 60 && !state.game.gameOver && state.game.turnNumber < targetTurn; i += 1) {
+    if (state.game.current === 0) {
+      if (!state.game.dice) host.send({ type: 'roll', count: 1 });
+      else if (state.game.settled) host.send({ type: 'endTurn' });
+    }
+    state = await host.waitFor('state');
+  }
+  return state;
+}
+
+test('房主添加人机满员自动开局，人机自动行动且不发聊天', async t => {
+  const f = await createFixture(t, { botTurnDelayMs: 5, botJitterMs: 0 });
+  const host = await f.client();
+  await guest(host, '房主甲', 'bot_host_device_0001');
+  host.send({ type: 'joinRoom', roomId: '1' });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  await host.waitFor('waiting', m => m.players.filter(p => p.bot).length === 1);
+  host.send({ type: 'addBot', difficulty: 'normal' });
+  await host.waitFor('waiting', m => m.players.filter(p => p.bot).length === 2);
+  host.send({ type: 'addBot', difficulty: 'hard' });
+  const firstState = await host.waitFor('state');
+  assert.equal(firstState.game.players.length, 4);
+  assert.deepEqual(firstState.game.players.slice(1).map(p => p.difficulty), ['easy', 'normal', 'hard']);
+  assert.ok(firstState.game.players.slice(1).every(p => p.bot === true));
+
+  // 人机完成自己回合后，回合数应推进到第 5 回合（回到房主）
+  const state = await driveHumanTurns(host, firstState, 5);
+  assert.ok(state.game.turnNumber >= 5 || state.game.gameOver, `对局应推进，当前回合 ${state.game.turnNumber}`);
+  // 人机从未发送聊天消息
+  assert.equal(f.app.rooms.get('1').chatLog.length, 0);
+});
+
+test('DLC 对局：人机自动选择角色与任务并正常行动', async t => {
+  const f = await createFixture(t, { botTurnDelayMs: 5, botJitterMs: 0 });
+  const host = await f.client();
+  await guest(host, '房主乙', 'botdlc_host_00001');
+  host.send({ type: 'joinRoom', roomId: '2' });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  host.send({ type: 'setDlc', enabled: true });
+  await host.waitFor('waiting', m => m.dlcEnabled === true);
+  for (let i = 0; i < 3; i += 1) {
+    host.send({ type: 'addBot', difficulty: ['easy', 'normal', 'hard'][i] });
+    await host.waitFor('waiting', m => m.players.filter(p => p.bot).length === i + 1);
+  }
+  const firstState = await host.waitFor('state');
+  assert.ok(firstState.game.dlc.selecting, '开局应先进入选择阶段');
+  // 等待人机自动完成选择
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  const game = f.app.rooms.get('2').game;
+  assert.ok(game.players.slice(1).every(p => p.dlc.roleChosen && p.dlc.taskId), '人机应自动完成角色与任务选择');
+  host.send({ type: 'chooseTask', taskId: game.players[0].dlc.taskOptions[0] });
+  host.send({ type: 'chooseRole', role: game.players[0].dlc.roleOptions[0] });
+  let state = await host.waitFor('state', m => !m.game.dlc.selecting);
+  state = await driveHumanTurns(host, state, 5);
+  assert.ok(state.game.turnNumber >= 5 || state.game.gameOver, `DLC 对局应推进，当前回合 ${state.game.turnNumber}`);
+});
+
+test('人机管理：非房主不可操作、可移除、房主可手动开局', async t => {
+  const f = await createFixture(t);
+  const host = await f.client();
+  await guest(host, '房主丙', 'botm_host_0000001');
+  const other = await f.client();
+  await guest(other, '访客丁', 'botm_guest_00001');
+  host.send({ type: 'joinRoom', roomId: '3' });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  other.send({ type: 'joinRoom', roomId: '3' });
+  await other.waitFor('roomJoined');
+  await other.waitFor('chatHistory');
+  // 非房主添加人机被拒
+  other.send({ type: 'addBot', difficulty: 'easy' });
+  assert.equal((await other.waitFor('error')).code, 'HOST_ONLY');
+  // 非法难度被拒
+  host.send({ type: 'addBot', difficulty: 'brutal' });
+  assert.equal((await host.waitFor('error')).code, 'INVALID_BOT');
+  // 添加人机：等待消息中带 bot 标记与难度
+  host.send({ type: 'addBot', difficulty: 'hard' });
+  const waiting = await host.waitFor('waiting', m => m.players.some(p => p.bot));
+  const bot = waiting.players.find(p => p.bot);
+  assert.equal(bot.difficulty, 'hard');
+  // 移除人机
+  host.send({ type: 'removeBot', playerId: bot.id });
+  await host.waitFor('waiting', m => !m.players.some(p => p.bot));
+  // 没有人机的房间不能手动开始
+  host.send({ type: 'startGame' });
+  assert.equal((await host.waitFor('error')).code, 'NO_BOT');
+  // 添加人机后可手动开始（2 真人 + 1 人机）
+  host.send({ type: 'addBot', difficulty: 'normal' });
+  await host.waitFor('waiting', m => m.players.some(p => p.bot));
+  host.send({ type: 'startGame' });
+  const state = await host.waitFor('state');
+  assert.equal(state.game.players.length, 3);
+  assert.equal(state.game.players[2].bot, true);
+  assert.equal(state.game.players[2].difficulty, 'normal');
+  // 房主离开后，人机应随房间复位清空
+  host.send({ type: 'leaveRoom' });
+  await host.waitFor('leftRoom');
+  other.send({ type: 'leaveRoom' });
+  await other.waitFor('leftRoom');
+  const room = f.app.rooms.get('3');
+  assert.equal(room.game, null);
+  assert.equal(room.members.filter(m => m.isBot).length, 0);
 });

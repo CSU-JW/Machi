@@ -528,3 +528,28 @@ body::before {
 .chat-form input:focus { outline: 2px solid #8fce9f; border-color: #3b8f57; }
 .chat.collapsed .chat-messages, .chat.collapsed .chat-form, .chat.collapsed .chat-error { display: none; }
 .chat.collapsed .chat-head { margin-bottom: 0; }
+
+/* 人机 */
+.bot-controls {
+  margin: 14px 0 0;
+  padding: 14px;
+  text-align: left;
+  border: 1px dashed #b9a888;
+  border-radius: 12px;
+  background: #f6f2e6;
+}
+.bot-controls[hidden] { display: none; }
+.bot-difficulty { display: flex; align-items: center; gap: 8px; color: #5f4937; font-size: 14px; font-weight: 700; }
+.bot-controls button { margin: 8px 6px 0 0; }
+.bot-controls .helper { margin: 8px 0 0; }
+.seat.bot { border-color: #cbb9df; background: #f4effa; }
+.seat-remove {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid #d8a7a0;
+  border-radius: 999px;
+  color: #b83d37;
+  background: #fff5f5;
+  font-size: 12px;
+}
+.badge-bot { font-size: 11px; background: #5b8def; color: white; padding: 2px 6px; border-radius: 4px; }

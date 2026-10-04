@@ -237,19 +237,45 @@ function renderLobby(rooms) {
 }
 
 function renderWaiting(msg) {
+  const isHost = msg.hostId === myId;
   document.getElementById('roomDlc').checked = Boolean(msg.dlcEnabled);
-  document.getElementById('roomDlc').disabled = msg.hostId !== myId;
-  document.getElementById('dlcSettingHint').textContent = `${msg.hostId === myId ? '你是房主，可在开局前切换。' : '由房主切换。'}开局后锁定；DLC包含11种新建筑、任务、事件和角色。`;
+  document.getElementById('roomDlc').disabled = !isHost;
+  document.getElementById('dlcSettingHint').textContent = `${isHost ? '你是房主，可在开局前切换。' : '由房主切换。'}开局后锁定；DLC包含11种新建筑、任务、事件和角色。`;
   document.getElementById('waitingRoomId').textContent = msg.roomId;
   document.getElementById('waitingText').textContent = msg.testRoom ? '单人练习：选好头像和模式后点击开始。' : `还差 ${msg.need} 人，满 4 人后自动开始游戏`;
+
+  const bots = (msg.players || []).filter(p => p.bot);
+  const members = (msg.players || []).filter(Boolean);
+  const botControls = document.getElementById('botControls');
+  botControls.hidden = !isHost || msg.testRoom;
+  if (!botControls.hidden) {
+    document.getElementById('startGameButton').disabled = !(members.length >= 2 && bots.length > 0);
+    document.getElementById('botHint').textContent = bots.length
+      ? `已添加 ${bots.length} 名人机：满 4 人自动开局，也可点击「开始游戏」立即开局。`
+      : '可添加人机补位（简单/普通/困难）：满 4 人自动开局。';
+  }
+
   const list = document.getElementById('waitingPlayers');
   list.replaceChildren();
   for (let index = 0; index < (msg.capacity || 4); index += 1) {
     const seat = document.createElement('div');
     const player = msg.players[index];
     if (player) {
-      seat.className = `seat${player.connected === false ? ' offline' : ''}`;
-      seat.textContent = `${AVATARS[player.avatar]?.icon || '🐶'} ${index + 1} 号位 · ${player.name}${player.id === myId ? '（你）' : ''}${player.connected === false ? ' · 离线' : ''}`;
+      if (player.bot) {
+        seat.className = 'seat bot';
+        seat.textContent = `🤖 ${index + 1} 号位 · ${player.name}`;
+        if (isHost) {
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.className = 'seat-remove';
+          remove.textContent = '✕ 移除';
+          remove.addEventListener('click', () => send({ type: 'removeBot', playerId: player.id }));
+          seat.appendChild(remove);
+        }
+      } else {
+        seat.className = `seat${player.connected === false ? ' offline' : ''}`;
+        seat.textContent = `${AVATARS[player.avatar]?.icon || '🐶'} ${index + 1} 号位 · ${player.name}${player.id === myId ? '（你）' : ''}${player.connected === false ? ' · 离线' : ''}`;
+      }
     } else {
       seat.className = 'seat empty';
       seat.textContent = `${index + 1} 号位 · 等待玩家`;
@@ -305,6 +331,8 @@ document.getElementById('guestForm').addEventListener('submit', event => {
 
 document.getElementById('createRoomButton').addEventListener('click', () => send({ type: 'createRoom', dlcEnabled:document.getElementById('createDlc').checked }));
 document.getElementById('roomDlc').addEventListener('change', event => send({type:'setDlc',enabled:event.target.checked}));
+document.getElementById('addBotButton').addEventListener('click', () => send({ type: 'addBot', difficulty: document.getElementById('botDifficulty').value }));
+document.getElementById('startGameButton').addEventListener('click', () => send({ type: 'startGame' }));
 document.getElementById('leaveRoomButton').addEventListener('click', () => send({ type: 'leaveRoom' }));
 document.getElementById('leaveGameButton').addEventListener('click', () => {
   if (confirm('退出后将放弃本局席位，且不能再回到这局游戏。确定退出吗？')) send({ type: 'leaveRoom' });
@@ -382,11 +410,12 @@ const SIX_CARDS = ['stadium','tvStation','mall','museum'];
 const LANDMARK_NAMES = { train:'火车站', radio:'广播中心', mallC:'商业中心', park:'游乐园' };
 const LANDMARK_COSTS = { train:4, radio:16, mallC:13, park:22 };
 const AVATARS={dog:{icon:'🐶',name:'小狗'},chick:{icon:'🐥',name:'小鸡'},fish:{icon:'🐟',name:'小鱼'},duck:{icon:'🦆',name:'小鸭'}};
+const BOT_LABELS={easy:'简单',normal:'普通',hard:'困难'};
 const LANDMARK_INFO={train:'每回合可选择投掷1个或2个骰子。',radio:'最终投掷2个骰子且为对子时，本回合结束后获得额外回合。',mallC:'面包店、便利店、咖啡店、奶茶店、果园每张收入+1；奶制品、家具、农产品工厂的每份原料收益+1。不作用于DLC建筑。',park:'每回合首次投掷后可选择重投一次；只结算最终结果。投2骰仍需火车站。'};
 for(const id of Object.keys(LANDMARK_NAMES)){
   CARD_NAMES[id]=LANDMARK_NAMES[id];CARD_COSTS[id]=LANDMARK_COSTS[id];CARD_TYPE[id]='landmark';CARD_POINTS[id]=[];CARD_DESCRIPTIONS[id]=LANDMARK_INFO[id];CARD_IMAGES[id]=`/assets/landmarks/${id}.png`;
 }
-function playerName(p){return `${p.name} [${p.dlc?(p.dlc.roleChosen?DLC1.roles[p.dlc.role].name:'待选角色'):'市民'}]`;}
+function playerName(p){return `${p.bot?'🤖':''}${p.name} [${p.dlc?(p.dlc.roleChosen?DLC1.roles[p.dlc.role].name:'待选角色'):'市民'}]`;}
 function avatarPicker(selected){
   const box=document.createElement('div');box.className='avatar-picker';
   for(const [id,a] of Object.entries(AVATARS)){const b=addAction(box,`${a.icon} ${a.name}`,{type:'setAvatar',avatar:id});b.classList.toggle('selected',id===selected);b.setAttribute('aria-pressed',String(id===selected));}
@@ -628,8 +657,14 @@ function render() {
     playerPanel.className = `player${index === game.current && !game.gameOver ? ' active' : ''}${player.connected === false ? ' offline' : ''}`;
 
     const heading = document.createElement('h3');
-    const avatar=document.createElement('button');avatar.className='player-avatar';avatar.textContent=AVATARS[player.avatar]?.icon||'🐶';avatar.setAttribute('aria-label',`查看${player.name}的角色和任务`);avatar.onclick=()=>openPlayer(player);
+    const avatar=document.createElement('button');avatar.className='player-avatar';avatar.textContent=player.bot?'🤖':(AVATARS[player.avatar]?.icon||'🐶');avatar.setAttribute('aria-label',`查看${player.name}的角色和任务`);avatar.onclick=()=>openPlayer(player);
     heading.append(avatar,document.createTextNode(`${playerName(player)}${me && player.id === me.id ? '（你）' : ''}`));
+    if (player.bot) {
+      const botBadge = document.createElement('span');
+      botBadge.className = 'badge-bot';
+      botBadge.textContent = `${BOT_LABELS[player.difficulty] || ''}人机`;
+      heading.appendChild(botBadge);
+    }
     if (player.connected === false) {
       const badge = document.createElement('span');
       badge.className = 'badge-offline';

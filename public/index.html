@@ -130,7 +130,7 @@
       .account-info { width: 100%; justify-content: space-between; }
     }
   </style>
-  <link rel="stylesheet" href="style.css?v=20261004-chat">
+  <link rel="stylesheet" href="style.css?v=20261004-bots">
 </head>
 <body>
   <section id="auth" class="screen active">
@@ -177,6 +177,18 @@
       <p id="waitingText" class="helper"></p>
       <label class="dlc-setting"><input id="roomDlc" type="checkbox"> 启用海滨假日 DLC</label><p id="dlcSettingHint" class="helper"></p>
       <div id="waitingPlayers" class="seat-list"></div>
+      <div id="botControls" class="bot-controls" hidden>
+        <label class="bot-difficulty">🤖 人机难度
+          <select id="botDifficulty">
+            <option value="easy">简单 · 有钱就购买</option>
+            <option value="normal">普通 · 计算期望收益</option>
+            <option value="hard">困难 · 针对玩家策略</option>
+          </select>
+        </label>
+        <button id="addBotButton" class="secondary" type="button">＋ 添加人机</button>
+        <button id="startGameButton" class="primary" type="button">▶ 开始游戏</button>
+        <p id="botHint" class="helper"></p>
+      </div>
       <section class="chat" id="waitingChat">
         <div class="chat-head">💬 房间聊天</div>
         <div class="chat-messages" id="waitingChatMessages"></div>
@@ -247,6 +259,6 @@
   <dialog id="playerDialog" class="profile-dialog" aria-labelledby="playerTitle"><h3 id="playerTitle"></h3><div id="playerDetails"></div><form method="dialog"><button class="primary">关闭</button></form></dialog>
   <div id="connectionStatus">连接已断开，正在重连…</div>
   <script src="/dlc1/catalog.js?v=20261003-dlc1"></script>
-  <script src="client.js?v=20261004-chat"></script>
+  <script src="client.js?v=20261004-bots"></script>
 </body>
 </html>
