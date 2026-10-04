@@ -617,6 +617,32 @@ test('等待房内可在参赛席与观战席之间切换，唯一的参赛者�
   assert.ok(waiting2.players.some(p => p.name === '房主'));
 });
 
+test('观战切回参赛席时排在真人之末、人机之前，不会让人机成为房主', async t => {
+  const f = await createFixture(t);
+  const host = await f.client();
+  await guest(host, '房主', 'seatback_host_001');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  const roomId = String((await host.waitFor('roomCreated')).roomId);
+  host.send({ type: 'joinRoom', roomId });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  await host.waitFor('waiting', m => m.players.some(p => p.bot));
+  // 房主切到观战席（此时人机成为唯一参赛者）
+  host.send({ type: 'toggleSeat' });
+  await host.waitFor('waiting', m => m.spectators.length === 1);
+  // 切回参赛席：应排在人机之前，重新成为 0 号房主
+  host.send({ type: 'toggleSeat' });
+  const waiting = await host.waitFor('waiting', m => m.spectators.length === 0 && m.players.length === 2);
+  assert.equal(waiting.players[0].name, '房主', '房主应回到 0 号位');
+  assert.equal(waiting.players[1].bot, true, '人机应向后排');
+  assert.equal(waiting.hostId, 0);
+  // 房主仍然有房主权限（可以移除人机）
+  host.send({ type: 'removeBot', playerId: 1 });
+  await host.waitFor('waiting', m => m.players.length === 1);
+  assert.equal(f.app.rooms.get(roomId).members[0].name, '房主');
+});
+
 test('对局中可加入观战：收到实时状态、系统提示与观战标识，且不能操作', async t => {
   const f = await createFixture(t);
   const host = await f.client();

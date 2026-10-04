@@ -650,17 +650,13 @@ function createMachiServer(options = {}) {
       isSpectator: false,
       seatKey: crypto.randomBytes(8).toString('hex'),
     };
-    // 插入到观战者之前，保持参赛者在成员列表前部（索引即席位号）
-    let insertIndex = room.members.length;
+    // 插入到最后一个真人参赛者之后、第一个人机/观战者之前（真人优先成为房主）
+    let insertIndex = 0;
     for (let i = 0; i < room.members.length; i += 1) {
-      if (room.members[i].isSpectator) { insertIndex = i; break; }
-    }
-    if (room.members[0]?.isBot) {
-      // 房间只有人机没有真人房主：新参赛者接管 0 号位成为房主
-      insertIndex = 0;
+      if (!room.members[i].isSpectator && !room.members[i].isBot) insertIndex = i + 1;
     }
     room.members.splice(insertIndex, 0, member);
-    if (insertIndex === 0) reindexWaitingRoom(room);
+    if (insertIndex === 0 && room.members.length > 1) reindexWaitingRoom(room);
     console.log(`[join] 房间 ${room.id}，${member.name}，当前人数 ${participantCount + 1}`);
     attachToMember(ws, room, member, false);
   }
@@ -1060,6 +1056,7 @@ function createMachiServer(options = {}) {
         const member = room.members.find(item => item.socket === ws && item.identityKey === identityKey(ws.identity));
         if (!member) return sendError(ws, '当前没有席位', 'NOT_IN_ROOM');
         const participants = room.members.filter(item => !item.isSpectator);
+        const switchingToSpectator = !member.isSpectator; // 先记录切换方向，再翻转标记
         if (member.isSpectator) {
           // 观战席 → 参赛席（有空位时）
           if (participants.length >= MAX_PLAYERS) return sendError(ws, '参赛席位已满', 'ROOM_FULL');
@@ -1069,14 +1066,20 @@ function createMachiServer(options = {}) {
           if (participants.length <= 1) return sendError(ws, '你是唯一的参赛玩家，无法切换到观战席', 'ONLY_PARTICIPANT');
           member.isSpectator = true;
         }
-        // 重排：参赛者在前（保持原顺序），观战者在后
-        const ordered = [
-          ...room.members.filter(item => item !== member && !item.isSpectator),
-          ...(member.isSpectator ? [] : [member]),
-          ...room.members.filter(item => item !== member && item.isSpectator),
-          ...(member.isSpectator ? [member] : []),
-        ];
-        room.members = ordered;
+        // 重排：真人参赛者在前（保持原顺序），人机随后，观战者在最后。
+        // 观战 → 参赛：插到最后一个真人参赛者之后、第一个人机之前，保证真人优先成为房主。
+        const others = room.members.filter(item => item !== member);
+        if (!switchingToSpectator) {
+          const humans = others.filter(item => !item.isSpectator && !item.isBot);
+          const bots = others.filter(item => !item.isSpectator && item.isBot);
+          const spectators = others.filter(item => item.isSpectator);
+          room.members = [...humans, member, ...bots, ...spectators];
+        } else {
+          const humans = others.filter(item => !item.isSpectator && !item.isBot);
+          const bots = others.filter(item => !item.isSpectator && item.isBot);
+          const spectators = others.filter(item => item.isSpectator);
+          room.members = [...humans, ...bots, ...spectators, member];
+        }
         reindexWaitingRoom(room);
         sendWaiting(room);
         broadcastLobby();
