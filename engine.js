@@ -76,6 +76,12 @@ function diceIncomeMultiplier(g) {
   return Math.max((dice.values[0] + dice.values[1]) / 6, 1);
 }
 
+// 倍率标注：a > 1 时返回“（×1.17）”样式的显示文本
+function multiplierLabel(multiplier) {
+  if (multiplier <= 1) return '';
+  return `（×${Number(multiplier.toFixed(2))}）`;
+}
+
 function canReroll(g, p) {
   if (!g.dice || g.settled || g.rerolled) return false;
   return playerHasLandmark(p, 'park');
@@ -118,7 +124,7 @@ function settle(g, rollerId, sum) {
       const raw = (card.dlc ? D.income(card, owner, g) : card.effect.amount + bonusFor(owner, cardId)) * n;
       const amount = Math.ceil(raw * multiplier);
       const paid = transferUpTo(roller, owner, amount);
-      events.push(`${roller.name} 向 ${owner.name} 支付 ${paid}（${card.name} x${n}，应付 ${amount}${multiplier > 1 ? '·双骰修正' : ''}）`);
+      events.push(`${roller.name} 向 ${owner.name} 支付 ${paid}（${card.name} x${n}，应付 ${amount}${multiplierLabel(multiplier)}）`);
     }
   }
   g.incomePending = true;
@@ -152,7 +158,7 @@ function finishIncome(g, rollerId, events) {
         const gain = Math.ceil(raw * multiplier);
         owner.money += gain;
         if (owner.id === rollerId) triggered.push(cardId);
-        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}${multiplier > 1 ? '（双骰修正）' : ''}`);
+        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}${multiplierLabel(multiplier)}`);
       } else if (card.trigger === 'self') {
         if (owner.id !== rollerId) continue;
         const bonus = bonusFor(owner, cardId);
@@ -172,7 +178,7 @@ function finishIncome(g, rollerId, events) {
         const gain = Math.ceil(raw * multiplier);
         owner.money += gain;
         triggered.push(cardId);
-        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}${multiplier > 1 ? '（双骰修正）' : ''}`);
+        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}${multiplierLabel(multiplier)}`);
       }
     }
   }

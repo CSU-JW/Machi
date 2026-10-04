@@ -143,8 +143,27 @@ function bestQuote(game, player, kind, id, cost) {
 // ---------- 掷骰与选择 ----------
 function decideRollCount(game, player, difficulty) {
   if (!player.landmarks.train) return 1;
-  if (difficulty === 'easy') return 2;
-  return avgRollValue(game, player, 2) > avgRollValue(game, player, 1) ? 2 : 1;
+  // 简单：粗略判断——自己拥有 7 点及以上可触发的卡时才投两个骰子
+  if (difficulty === 'easy') {
+    const hasHighCard = Object.keys(player.cards).some(id =>
+      countOf(player, id) > 0
+      && CARDS[id]
+      && CARDS[id].trigger === 'self'
+      && CARDS[id].points.some(pt => pt >= 7));
+    return hasHighCard ? 2 : 1;
+  }
+  // 普通/困难：比较单骰与双骰的期望收益（双骰期望已含收入修正）
+  const ev1 = avgRollValue(game, player, 1);
+  const ev2 = avgRollValue(game, player, 2);
+  if (difficulty === 'hard') {
+    // 困难：落后于领跑者时更愿意承担双骰风险追分
+    const leader = findLeader(game, player.id);
+    const behind = Boolean(leader && (
+      landmarkCount(leader) > landmarkCount(player)
+      || (landmarkCount(leader) === landmarkCount(player) && leader.money > player.money + 3)));
+    return ev2 + (behind ? 0.5 : 0) > ev1 ? 2 : 1;
+  }
+  return ev2 > ev1 ? 2 : 1;
 }
 
 function decideChoice(game, player, difficulty) {

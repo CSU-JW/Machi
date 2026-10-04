@@ -126,7 +126,7 @@ test('双骰收入修正：点数和≥7 时卡牌收益乘以 (m+n)/6 并向上
   const result = E.settle(game, 0, 7);
   // 奶制品基础收益 2×2=4，修正 a=7/6 → ceil(4×7/6)=5
   assert.equal(player.money, 3 + 5);
-  assert.ok(result.events.some(event => event.includes('双骰修正')));
+  assert.ok(result.events.some(event => event.includes('（×1.17）')), '日志应直接显示倍率');
   assert.equal(E.diceIncomeMultiplier(game), 7 / 6);
 });
 

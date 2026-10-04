@@ -105,3 +105,25 @@ test('掷骰数量：无火车站必为单骰，有火车站合法', () => {
     assert.ok(count === 1 || count === 2);
   }
 });
+
+test('持有7点以上产业卡且有火车站时，各难度人机都选择投两个骰子', () => {
+  const g = makeGame(['甲', '乙', '丙', '丁']);
+  const p = g.players[0];
+  p.landmarks.train = true;
+  p.cards.dairy = 1;
+  p.cards.ranch = 2;
+  // 双骰期望：P(7)=6/36，奶制品修正后 4→5，EV2≈0.83 > 单骰 EV1=0.5
+  for (const difficulty of ['easy', 'normal', 'hard']) {
+    assert.equal(B.decideRollCount(g, p, difficulty), 2, `${difficulty} 应选择双骰`);
+  }
+});
+
+test('没有7点以上卡时，普通人机比较期望后选择单骰', () => {
+  const g = makeGame(['甲', '乙', '丙', '丁']);
+  const p = g.players[0];
+  p.landmarks.train = true;
+  // 初始只有麦田+面包店：单骰 EV=0.5，双骰 EV≈0.08
+  assert.equal(B.decideRollCount(g, p, 'normal'), 1);
+  // 简单难度在无高点数卡时也投单骰
+  assert.equal(B.decideRollCount(g, p, 'easy'), 1);
+});
