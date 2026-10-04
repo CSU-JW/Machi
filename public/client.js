@@ -13,6 +13,7 @@ let chatErrorTimer = null;
 let spectating = false;
 let gameInProgress = false;
 let lastWaiting = null;
+let mySeatKey = null;
 
 const SESSION_KEY = 'machi_session_token';
 const DEVICE_KEY = 'machi_device_id';
@@ -80,6 +81,7 @@ function connect() {
       currentUser = null;
       roomId = null;
       myId = null;
+      mySeatKey = null;
       game = null;
       chatLog = [];
       renderChat();
@@ -98,6 +100,7 @@ function connect() {
       currentUser = null;
       roomId = null;
       myId = null;
+      mySeatKey = null;
       game = null;
       chatLog = [];
       renderChat();
@@ -120,6 +123,7 @@ function connect() {
     if (msg.type === 'roomJoined') {
       roomId = String(msg.roomId);
       myId = msg.spectator ? null : msg.playerId;
+      mySeatKey = msg.seatKey || null;
       game = null;
       lastGameOverKey = '';
       spectating = false;
@@ -146,6 +150,7 @@ function connect() {
     if (msg.type === 'leftRoom') {
       roomId = null;
       myId = null;
+      mySeatKey = null;
       game = null;
       lastGameOverKey = '';
       spectating = false;
@@ -364,6 +369,7 @@ function renderWaiting(msg) {
       });
       row.appendChild(watch);
     }
+    spectatorList.appendChild(row);
   } else if (!spectators.length) {
     const row = document.createElement('div');
     row.className = 'spectator-row empty';
@@ -1065,7 +1071,8 @@ function chatLineElement(entry) {
     return row;
   }
   const row = document.createElement('div');
-  const mine = entry.playerId === myId;
+  // 用 seatKey 区分本人消息：观战者的 playerId 都是 null，不能用 playerId 判断
+  const mine = entry.seatKey !== undefined ? entry.seatKey === mySeatKey : entry.playerId === myId;
   row.className = `chat-msg${mine ? ' mine' : ''}`;
   const meta = document.createElement('div');
   meta.className = 'chat-meta';

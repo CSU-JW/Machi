@@ -282,6 +282,7 @@ function createMachiServer(options = {}) {
     if (!room.chatLog) room.chatLog = [];
     const entry = {
       playerId: member.playerId,
+      seatKey: member.seatKey,
       name: member.name,
       avatar: member.avatar,
       spectator: member.isSpectator === true,
@@ -375,6 +376,7 @@ function createMachiServer(options = {}) {
       roomId: room.id,
       playerId: member.playerId,
       spectator: member.isSpectator === true,
+      seatKey: member.seatKey,
       name: member.name,
       reconnect,
     });
@@ -394,7 +396,7 @@ function createMachiServer(options = {}) {
           member.socket.playerId = null;
           send(member.socket, {
             type: 'roomJoined', roomId: room.id, playerId: null, spectator: true,
-            name: member.name, reconnect: true,
+            seatKey: member.seatKey, name: member.name, reconnect: true,
           });
         }
         return;
@@ -405,7 +407,7 @@ function createMachiServer(options = {}) {
         member.socket.playerId = member.playerId;
         send(member.socket, {
           type: 'roomJoined', roomId: room.id, playerId: member.playerId, spectator: false,
-          name: member.name, reconnect: true,
+          seatKey: member.seatKey, name: member.name, reconnect: true,
         });
       }
     });
@@ -612,6 +614,7 @@ function createMachiServer(options = {}) {
         socket: null,
         cleanupTimer: null,
         isSpectator: true,
+        seatKey: crypto.randomBytes(8).toString('hex'),
       };
       room.members.push(member);
       console.log(`[join] 房间 ${room.id}，${member.name} 加入观战席`);
@@ -630,6 +633,7 @@ function createMachiServer(options = {}) {
       socket: null,
       cleanupTimer: null,
       isSpectator: false,
+      seatKey: crypto.randomBytes(8).toString('hex'),
     };
     // 插入到观战者之前，保持参赛者在成员列表前部（索引即席位号）
     let insertIndex = room.members.length;
@@ -1001,6 +1005,7 @@ function createMachiServer(options = {}) {
           isBot: true,
           isSpectator: false,
           botDifficulty: difficulty,
+          seatKey: crypto.randomBytes(8).toString('hex'),
         };
         // 插入到观战者之前，保持参赛者在成员列表前部
         let insertIndex = room.members.length;
