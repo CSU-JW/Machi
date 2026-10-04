@@ -10,6 +10,9 @@ let cardModalPayload = null;
 let chatLog = [];
 let chatUnread = 0;
 let chatErrorTimer = null;
+let spectating = false;
+let gameInProgress = false;
+let lastWaiting = null;
 
 const SESSION_KEY = 'machi_session_token';
 const DEVICE_KEY = 'machi_device_id';
@@ -119,6 +122,9 @@ function connect() {
       myId = msg.spectator ? null : msg.playerId;
       game = null;
       lastGameOverKey = '';
+      spectating = false;
+      gameInProgress = false;
+      lastWaiting = null;
       chatLog = [];
       renderChat();
       document.getElementById('waitingRoomId').textContent = roomId;
@@ -129,6 +135,9 @@ function connect() {
     if (msg.type === 'waiting') {
       roomId = String(msg.roomId);
       closeGameOverModal();
+      spectating = false;
+      gameInProgress = Boolean(msg.gameRunning);
+      lastWaiting = msg;
       renderWaiting(msg);
       showScreen('waiting');
       return;
@@ -139,6 +148,9 @@ function connect() {
       myId = null;
       game = null;
       lastGameOverKey = '';
+      spectating = false;
+      gameInProgress = false;
+      lastWaiting = null;
       chatLog = [];
       renderChat();
       closeCardModal();
@@ -152,9 +164,15 @@ function connect() {
       closeCardModal();
       document.getElementById('playerDialog').close();
       game = msg.game;
+      gameInProgress = true;
+      // 观战者平时留在房间界面，点击「观战」后才进入对局画面
+      if (myId === null && !spectating) {
+        if (lastWaiting) renderWaiting({ ...lastWaiting, gameRunning: true });
+        return;
+      }
       showScreen('game');
       document.getElementById('roomInfo').textContent = roomId==='test'?'（单人测试）':(myId === null ? `（房间 ${roomId} · 👁 观战中）` : `（房间 ${roomId}，${myId + 1} 号玩家）`);
-      document.getElementById('leaveGameButton').textContent = myId === null ? '退出观战' : '退出本局';
+      document.getElementById('leaveGameButton').textContent = myId === null ? '返回房间' : '退出本局';
       render();
       if (game.gameOver) showGameOver();
       return;
@@ -232,8 +250,8 @@ function renderLobby(rooms) {
     const button = document.createElement('button');
     button.className = 'primary';
     const isPlaying = room.status === 'playing';
-    button.disabled = !isPlaying && room.playerCount >= room.capacity;
-    button.textContent = isPlaying ? '👁 观战' : room.playerCount >= room.capacity ? '房间已满' : '加入房间';
+    const isFull = room.playerCount >= room.capacity;
+    button.textContent = isPlaying ? '👁 观战' : isFull ? '👁 加入观战' : '加入房间';
     button.addEventListener('click', () => joinRoom(room.id));
     card.append(title, count, players, button);
     container.appendChild(card);
@@ -267,6 +285,9 @@ function renderWaiting(msg) {
 
   const list = document.getElementById('waitingPlayers');
   list.replaceChildren();
+  const gameRunning = Boolean(msg.gameRunning);
+  const meParticipant = msg.players.find(p => p.id === myId);
+  const amSpectator = !meParticipant && !msg.testRoom;
   for (let index = 0; index < (msg.capacity || 4); index += 1) {
     const seat = document.createElement('div');
     const player = msg.players[index];
@@ -274,7 +295,7 @@ function renderWaiting(msg) {
       if (player.bot) {
         seat.className = 'seat bot';
         seat.textContent = `🤖 ${index + 1} 号位 · ${player.name}`;
-        if (isHost) {
+        if (isHost && !gameRunning) {
           const remove = document.createElement('button');
           remove.type = 'button';
           remove.className = 'seat-remove';
@@ -285,7 +306,7 @@ function renderWaiting(msg) {
       } else {
         seat.className = `seat${player.connected === false ? ' offline' : ''}`;
         seat.textContent = `${AVATARS[player.avatar]?.icon || '🐶'} ${index + 1} 号位 · ${player.name}${player.id === myId ? '（你）' : ''}${player.connected === false ? ' · 离线' : ''}`;
-        if (player.id === myId) {
+        if (player.id === myId && !gameRunning) {
           const toggle = document.createElement('button');
           toggle.type = 'button';
           toggle.className = 'seat-toggle';
@@ -300,15 +321,13 @@ function renderWaiting(msg) {
     }
     list.appendChild(seat);
   }
-  const meParticipant = msg.players.find(p => p.id === myId);
-  const amSpectator = !meParticipant && !msg.testRoom;
-  if (!amSpectator) list.append(avatarPicker(msg.players.find(p=>p.id===myId)?.avatar));
+  if (!amSpectator && !gameRunning) list.append(avatarPicker(msg.players.find(p=>p.id===myId)?.avatar));
   if(msg.testRoom)addAction(list,'开始单人测试',{type:'startTest'});
 
-  // 观战席
+  // 观战席：作为房间的一部分常驻显示
   const spectators = msg.spectators || [];
   const spectatorArea = document.getElementById('spectatorArea');
-  spectatorArea.hidden = !spectators.length && !amSpectator;
+  spectatorArea.hidden = msg.testRoom;
   const spectatorList = document.getElementById('waitingSpectators');
   spectatorList.replaceChildren();
   spectators.forEach((spec) => {
@@ -321,14 +340,43 @@ function renderWaiting(msg) {
     const row = document.createElement('div');
     row.className = 'spectator-row me';
     const label = document.createElement('span');
-    label.textContent = '👁 你正在观战';
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'seat-toggle';
-    toggle.textContent = '🔁 切到参赛席';
-    toggle.addEventListener('click', () => send({ type: 'toggleSeat' }));
-    row.append(label, toggle);
+    label.textContent = `👁 你（观战席）`;
+    row.appendChild(label);
+    if (!gameRunning) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'seat-toggle';
+      toggle.textContent = '🔁 切到参赛席';
+      toggle.addEventListener('click', () => send({ type: 'toggleSeat' }));
+      row.appendChild(toggle);
+    } else {
+      const watch = document.createElement('button');
+      watch.type = 'button';
+      watch.className = 'seat-toggle primary-toggle';
+      watch.textContent = '👁 进入观战';
+      watch.addEventListener('click', () => {
+        spectating = true;
+        showScreen('game');
+        document.getElementById('roomInfo').textContent = `（房间 ${roomId} · 👁 观战中）`;
+        document.getElementById('leaveGameButton').textContent = '返回房间';
+        render();
+        if (game && game.gameOver) showGameOver();
+      });
+      row.appendChild(watch);
+    }
+  } else if (!spectators.length) {
+    const row = document.createElement('div');
+    row.className = 'spectator-row empty';
+    row.textContent = '空观战席';
     spectatorList.appendChild(row);
+  }
+  if (gameRunning) {
+    const tip = document.createElement('div');
+    tip.className = 'spectator-game-tip';
+    tip.textContent = amSpectator
+      ? '⚔️ 对局进行中：点击上方「进入观战」实时观看。'
+      : '⚔️ 对局进行中。';
+    spectatorList.appendChild(tip);
   }
 }
 
@@ -381,7 +429,13 @@ document.getElementById('addBotButton').addEventListener('click', () => send({ t
 document.getElementById('startGameButton').addEventListener('click', () => send({ type: 'startGame' }));
 document.getElementById('leaveRoomButton').addEventListener('click', () => send({ type: 'leaveRoom' }));
 document.getElementById('leaveGameButton').addEventListener('click', () => {
-  if (myId === null) { send({ type: 'leaveRoom' }); return; }
+  if (myId === null) {
+    // 观战者：返回房间界面（仍在房间内）
+    spectating = false;
+    send({ type: 'requestRoom' });
+    showScreen('waiting');
+    return;
+  }
   if (confirm('退出后将放弃本局席位，且不能再回到这局游戏。确定退出吗？')) send({ type: 'leaveRoom' });
 });
 document.getElementById('logoutButton').addEventListener('click', () => send({ type: 'logout' }));

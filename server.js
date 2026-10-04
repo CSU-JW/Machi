@@ -209,10 +209,18 @@ function createMachiServer(options = {}) {
 
   function sendWaiting(room) {
     const participants = room.members.filter(member => !member.isSpectator);
-    const payload = {
+    const payload = waitingPayload(room, participants);
+    for (const member of room.members) {
+      if (member.socket) send(member.socket, payload);
+    }
+  }
+
+  function waitingPayload(room, participants) {
+    return {
       type: 'waiting',
       roomId: room.id,
       dlcEnabled: room.dlcEnabled,
+      gameRunning: Boolean(room.game),
       hostId: participants[0]?.playerId ?? null,
       need: (room.testRoom ? 1 : MAX_PLAYERS) - participants.length,
       capacity: room.testRoom ? 1 : MAX_PLAYERS,
@@ -231,9 +239,12 @@ function createMachiServer(options = {}) {
         connected: member.connected,
       })),
     };
-    for (const member of room.members) {
-      if (member.socket) send(member.socket, payload);
-    }
+  }
+
+  // 只向单个连接发送房间快照（加入房间、请求房间视图时使用）
+  function sendWaitingTo(ws, room) {
+    const participants = room.members.filter(member => !member.isSpectator);
+    send(ws, waitingPayload(room, participants));
   }
 
   function broadcastChat(room, entry) {
@@ -368,6 +379,7 @@ function createMachiServer(options = {}) {
       reconnect,
     });
     sendChatHistory(ws, room);
+    sendWaitingTo(ws, room); // 观战者也先看到与正常一致的房间界面
     if (room.game) broadcastGame(room);
     else sendWaiting(room);
     broadcastLobby();
@@ -587,8 +599,9 @@ function createMachiServer(options = {}) {
         'DEVICE_ALREADY_IN_ROOM',
       );
     }
-    if (room.game) {
-      // 对局进行中：只能以观战者身份进入，不占用参赛席位
+    const participantCount = room.members.filter(item => !item.isSpectator).length;
+    if (room.game || participantCount >= (room.testRoom ? 1 : MAX_PLAYERS)) {
+      // 对局中，或参赛席位已满：自动进入观战席（任何人可进房间）
       const member = {
         playerId: null,
         identityKey: key,
@@ -601,13 +614,11 @@ function createMachiServer(options = {}) {
         isSpectator: true,
       };
       room.members.push(member);
-      console.log(`[join] 房间 ${room.id} 对局中，${member.name} 加入观战`);
+      console.log(`[join] 房间 ${room.id}，${member.name} 加入观战席`);
       attachToMember(ws, room, member, false);
-      announceSpectatorJoin(room, member.name);
+      if (room.game) announceSpectatorJoin(room, member.name);
       return;
     }
-    const participantCount = room.members.filter(item => !item.isSpectator).length;
-    if (participantCount >= (room.testRoom ? 1 : MAX_PLAYERS)) return sendError(ws, '该房间已满', 'ROOM_FULL');
 
     const member = {
       playerId: participantCount,
@@ -934,6 +945,12 @@ function createMachiServer(options = {}) {
         room.dlcEnabled=msg.enabled;sendWaiting(room);broadcastLobby();return;
       }
       if (msg.type === 'requestLobby') return sendLobby(ws);
+      if (msg.type === 'requestRoom') {
+        const room = rooms.get(ws.roomId);
+        if (!room) return sendError(ws, '你当前不在房间中', 'NOT_IN_ROOM');
+        sendWaitingTo(ws, room);
+        return;
+      }
       if (msg.type === 'chat') return handleChat(ws, msg);
       if (msg.type === 'logout') {
         if (ws.roomId) return sendError(ws, '请先退出当前房间', 'LEAVE_ROOM_FIRST');
