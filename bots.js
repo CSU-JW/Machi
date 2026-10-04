@@ -160,54 +160,36 @@ function bestQuote(game, player, kind, id, cost) {
 }
 
 // ---------- 掷骰与选择 ----------
-function decideRollCount(game, player, difficulty) {
-  if (!player.landmarks.train) return 1;
-  // 简单：粗略判断——自己已持有 7 点以上卡，或牌堆里有买得起的 7 点以上卡（买了才有双骰收益）
-  if (difficulty === 'easy') {
-    const hasHighOwned = Object.keys(player.cards).some(id =>
-      countOf(player, id) > 0
-      && CARDS[id]
-      && CARDS[id].trigger === 'self'
-      && CARDS[id].points.some(pt => pt >= 7));
-    if (hasHighOwned) return 2;
-    const highBuyable = Object.keys(game.cardPool).some((id) => {
-      const card = CARDS[id];
-      if (!card || (game.cardPool[id] || 0) <= 0) return false;
-      if (card.dlc && !game.dlcEnabled) return false;
-      if (!card.points.some(pt => pt >= 7)) return false;
-      const quote = bestQuote(game, player, 'buy', id, card.cost);
-      return player.money >= quote.cost;
-    });
-    return highBuyable ? 2 : 1;
-  }
+// 各难度的掷骰决策参数：
+//   direct       —— 直接按期望决定选择的概率（难度越高，越倾向直接按期望）；
+//   temperature  —— 未直接决定时软选择（softmax）的温度：越小曲线越锐利，越接近按期望决定。
+// 软选择概率：P(双骰) = 1 / (1 + e^-(EV双骰 − EV单骰)/temperature)。
+const ROLL_PARAMS = {
+  easy:   { direct: 0.30, temperature: 2.0 }, // 简单：七成靠期望加权，曲线平缓，波动大
+  normal: { direct: 0.60, temperature: 1.0 }, // 普通：六成直接按期望，其余按期望加权
+  hard:   { direct: 0.85, temperature: 0.5 }, // 困难：几乎直接按期望，剩余软选择也很锐利
+};
 
-  // 普通/困难：比较“当前收益 + 买卡解锁收益”的规划期望（双骰期望已含收入修正）。
-  const ev1 = avgRollValue(game, player, 1);
-  const ev2 = avgRollValue(game, player, 2);
-  // 双骰探测溢价：还没有 7 点以上卡时，把“买得起的最优高点数卡的每轮期望”计入双骰收益，
-  // 否则高点数卡永远无法入手（7 点以上只有投双骰才能买到），人机会一直困在单骰。
-  let probeBonus = 0;
-  const hasHighOwned = Object.keys(player.cards).some(id =>
-    countOf(player, id) > 0 && CARDS[id] && CARDS[id].points.some(pt => pt >= 7));
-  if (!hasHighOwned) {
-    for (const id of Object.keys(game.cardPool)) {
-      const card = CARDS[id];
-      if (!card || (game.cardPool[id] || 0) <= 0) continue;
-      if (card.dlc && !game.dlcEnabled) continue;
-      if (!card.points.some(pt => pt >= 7)) continue;
-      const quote = bestQuote(game, player, 'buy', id, card.cost);
-      if (player.money >= quote.cost) probeBonus = Math.max(probeBonus, roundEv(game, player, id));
-    }
-  }
+// 投单骰还是双骰：有火车站时按难度参数做“期望加权概率选择”。
+// rng 可注入用于测试（默认 Math.random）。
+function decideRollCount(game, player, difficulty, rng = Math.random) {
+  if (!player.landmarks.train) return 1;
+  let ev1 = avgRollValue(game, player, 1);
+  let ev2 = avgRollValue(game, player, 2);
   if (difficulty === 'hard') {
-    // 困难：落后于领跑者时更愿意承担双骰风险追分
+    // 困难：落后于领跑者时额外抬高双骰期望，追分倾向更强
     const leader = findLeader(game, player.id);
     const behind = Boolean(leader && (
       landmarkCount(leader) > landmarkCount(player)
       || (landmarkCount(leader) === landmarkCount(player) && leader.money > player.money + 3)));
-    return ev2 + probeBonus + (behind ? 0.5 : 0) > ev1 ? 2 : 1;
+    if (behind) ev2 += 0.5;
   }
-  return ev2 + probeBonus > ev1 ? 2 : 1;
+  const params = ROLL_PARAMS[difficulty] || ROLL_PARAMS.normal;
+  // 第一层概率：直接按期望决定
+  if (rng() < params.direct) return ev2 > ev1 ? 2 : 1;
+  // 第二层概率：期望差经温度缩放后的软性加权
+  const p2 = 1 / (1 + Math.exp(-((ev2 - ev1) / params.temperature)));
+  return rng() < p2 ? 2 : 1;
 }
 
 function decideChoice(game, player, difficulty) {

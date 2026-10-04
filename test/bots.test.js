@@ -95,47 +95,79 @@ test('DLC 角色与任务选择必须来自可选列表', () => {
   }
 });
 
-test('掷骰数量：无火车站必为单骰，有火车站合法', () => {
+test('掷骰数量：无火车站必为单骰，有火车站为1或2', () => {
   const g = makeGame(['甲', '乙', '丙', '丁']);
   const p = g.players[0];
-  assert.equal(B.decideRollCount(g, p, 'easy'), 1);
+  for (const difficulty of ['easy', 'normal', 'hard']) {
+    assert.equal(B.decideRollCount(g, p, difficulty, () => 0), 1);
+  }
   p.landmarks.train = true;
   for (const difficulty of ['easy', 'normal', 'hard']) {
-    const count = B.decideRollCount(g, p, difficulty);
+    const count = B.decideRollCount(g, p, difficulty, () => 0);
     assert.ok(count === 1 || count === 2);
   }
 });
 
-test('持有7点以上产业卡且有火车站时，各难度人机都选择投两个骰子', () => {
+test('直接按期望决定：双骰期望高选双骰，单骰期望高选单骰', () => {
+  const alwaysDirect = () => 0; // 第一次随机数 < direct → 走“直接按期望”分支
+  // 奶制品+牧场×2：双骰规划期望更高
+  const g1 = makeGame(['甲', '乙', '丙', '丁']);
+  const p1 = g1.players[0];
+  p1.landmarks.train = true;
+  p1.cards.dairy = 1;
+  p1.cards.ranch = 2;
+  for (const difficulty of ['easy', 'normal', 'hard']) {
+    assert.equal(B.decideRollCount(g1, p1, difficulty, alwaysDirect), 2, `${difficulty} 直接按期望应选双骰`);
+  }
+  // 只有初始卡：单骰规划期望更高
+  const g2 = makeGame(['甲', '乙', '丙', '丁']);
+  const p2 = g2.players[0];
+  p2.landmarks.train = true;
+  for (const difficulty of ['easy', 'normal', 'hard']) {
+    assert.equal(B.decideRollCount(g2, p2, difficulty, alwaysDirect), 1, `${difficulty} 直接按期望应选单骰`);
+  }
+});
+
+// 可复现的伪随机数源（LCG），统计各难度选双骰的频率
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+function rollTwoRate(game, player, difficulty, samples = 4000) {
+  const rng = makeRng(20261004);
+  let twos = 0;
+  for (let i = 0; i < samples; i += 1) {
+    if (B.decideRollCount(game, player, difficulty, rng) === 2) twos += 1;
+  }
+  return twos / samples;
+}
+
+test('期望加权选择：双骰期望高时选双骰概率过半，且难度越高越倾向双骰', () => {
   const g = makeGame(['甲', '乙', '丙', '丁']);
   const p = g.players[0];
   p.landmarks.train = true;
   p.cards.dairy = 1;
   p.cards.ranch = 2;
-  // 双骰期望：P(7)=6/36，奶制品修正后 4→5，EV2≈0.83 > 单骰 EV1=0.5
-  for (const difficulty of ['easy', 'normal', 'hard']) {
-    assert.equal(B.decideRollCount(g, p, difficulty), 2, `${difficulty} 应选择双骰`);
-  }
+  const easyRate = rollTwoRate(g, p, 'easy');
+  const normalRate = rollTwoRate(g, p, 'normal');
+  const hardRate = rollTwoRate(g, p, 'hard');
+  assert.ok(easyRate > 0.5, `简单双骰概率应过半，实际 ${easyRate.toFixed(3)}`);
+  assert.ok(normalRate > easyRate && hardRate > normalRate,
+    `双骰概率应随难度递增：easy=${easyRate.toFixed(3)} normal=${normalRate.toFixed(3)} hard=${hardRate.toFixed(3)}`);
 });
 
-test('初始卡且资金少时，普通人机比较规划期望后选择单骰', () => {
+test('期望加权选择：单骰期望高时双骰概率随难度递减', () => {
   const g = makeGame(['甲', '乙', '丙', '丁']);
   const p = g.players[0];
   p.landmarks.train = true;
-  // 只有麦田+面包店、资金3：双骰能买的奶制品依赖牧场(0张)收益低，规划期望仍偏向单骰
-  assert.equal(B.decideRollCount(g, p, 'normal'), 1);
-  // 简单：买得起的7点卡存在（奶制品3元）→ 双骰；资金1买不起 → 单骰
-  assert.equal(B.decideRollCount(g, p, 'easy'), 2);
-  p.money = 1;
-  assert.equal(B.decideRollCount(g, p, 'easy'), 1);
-});
-
-test('没有7点卡但牧场多时，人机因“买卡解锁期望”选择投双骰', () => {
-  const g = makeGame(['甲', '乙', '丙', '丁']);
-  const p = g.players[0];
-  p.landmarks.train = true;
-  p.cards = { ranch: 2 }; // 牧场×2：双骰掷出7可买奶制品（每轮期望约0.78）
-  for (const difficulty of ['easy', 'normal', 'hard']) {
-    assert.equal(B.decideRollCount(g, p, difficulty), 2, `${difficulty} 应选择双骰`);
-  }
+  const easyRate = rollTwoRate(g, p, 'easy');
+  const normalRate = rollTwoRate(g, p, 'normal');
+  const hardRate = rollTwoRate(g, p, 'hard');
+  assert.ok(easyRate > normalRate && normalRate > hardRate,
+    `双骰概率应随难度递减：easy=${easyRate.toFixed(3)} normal=${normalRate.toFixed(3)} hard=${hardRate.toFixed(3)}`);
+  assert.ok(hardRate < 0.5, `困难难度应偏向单骰，实际 ${hardRate.toFixed(3)}`);
 });
