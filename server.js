@@ -4,6 +4,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer, WebSocket } = require('ws');
 const E = require('./engine');
+const D = require('./dlc1/runtime');
+const { CARDS, LANDMARKS } = require('./cards');
 const { AuthStore, AuthError, cleanNickname } = require('./auth-store');
 
 const MAX_PLAYERS = 4;
@@ -11,6 +13,9 @@ const INITIAL_ROOM_COUNT = 3;
 const WAITING_SEAT_TTL_MS = 30_000;
 const GAME_SEAT_TTL_MS = 10 * 60_000;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const CHAT_MAX_LENGTH = 300;
+const CHAT_HISTORY_LIMIT = 100;
+const CHAT_RATE_LIMIT_MS = 500;
 
 function createMachiServer(options = {}) {
   const publicDir = options.publicDir || path.join(__dirname, 'public');
@@ -20,14 +25,15 @@ function createMachiServer(options = {}) {
   const sessions = new Map();
   let nextRoomId = 1;
 
-  function createRoom() {
+  function createRoom(dlcEnabled = false) {
     const id = String(nextRoomId++);
-    const room = { id, members: [], game: null };
+    const room = { id, members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [] };
     rooms.set(id, room);
     return room;
   }
 
   for (let i = 0; i < INITIAL_ROOM_COUNT; i += 1) createRoom();
+  rooms.set('test',{id:'test',members:[],game:null,dlcEnabled:false,testRoom:true,chatLog:[]});
 
   function readCookie(header, name) {
     const cookies = String(header || '').split(';');
@@ -67,9 +73,15 @@ function createMachiServer(options = {}) {
       return;
     }
 
-    const relativePath = pathname.replace(/^[/\\]+/, '');
-    const filePath = path.resolve(publicDir, relativePath);
-    const publicRoot = path.resolve(publicDir) + path.sep;
+    // 仅公开DLC目录内的静态展示文件，不暴露运行时代码。
+    const isDlc = pathname.startsWith('/dlc1/');
+    if (isDlc && !(/^\/dlc1\/assets\/cards\/[a-zA-Z]+\.png$/.test(pathname) || pathname === '/dlc1/catalog.js')) {
+      res.writeHead(404); res.end('Not Found'); return;
+    }
+    const root = isDlc ? path.join(__dirname,'dlc1') : publicDir;
+    const relativePath = (isDlc ? pathname.slice(6) : pathname).replace(/^[/\\]+/, '');
+    const filePath = path.resolve(root, relativePath);
+    const publicRoot = path.resolve(root) + path.sep;
     if (!filePath.startsWith(publicRoot)) {
       res.writeHead(403);
       res.end('Forbidden');
@@ -112,7 +124,9 @@ function createMachiServer(options = {}) {
     return {
       id: room.id,
       playerCount: activeMembers.length,
-      capacity: MAX_PLAYERS,
+      capacity: room.testRoom ? 1 : MAX_PLAYERS,
+      testRoom: Boolean(room.testRoom),
+      dlcEnabled: room.dlcEnabled,
       status: room.game ? 'playing' : 'waiting',
       players: activeMembers.map(member => member.name),
     };
@@ -134,7 +148,11 @@ function createMachiServer(options = {}) {
 
   function broadcastGame(room) {
     if (!room.game) return;
-    const payload = JSON.stringify({ type: 'state', game: room.game });
+    const g=room.game, p=g.players[g.current];
+    const shopQuotes={buy:{},build:{}};
+    for(const id of Object.keys(g.cardPool))shopQuotes.buy[id]=D.quote(g,p,'buy',id,CARDS[id].cost);
+    for(const id of Object.keys(LANDMARKS))shopQuotes.build[id]=D.quote(g,p,'build',id,LANDMARKS[id].cost);
+    const payload = JSON.stringify({ type: 'state', game: {...g,shopQuotes} });
     for (const member of room.members) {
       if (member.socket && member.socket.readyState === WebSocket.OPEN) member.socket.send(payload);
     }
@@ -144,16 +162,55 @@ function createMachiServer(options = {}) {
     const payload = {
       type: 'waiting',
       roomId: room.id,
-      need: MAX_PLAYERS - room.members.length,
+      dlcEnabled: room.dlcEnabled,
+      hostId: room.members[0]?.playerId ?? null,
+      need: (room.testRoom ? 1 : MAX_PLAYERS) - room.members.length,
+      capacity: room.testRoom ? 1 : MAX_PLAYERS,
+      testRoom: Boolean(room.testRoom),
       players: room.members.map(member => ({
         id: member.playerId,
         name: member.name,
+        avatar: member.avatar,
         connected: member.connected,
       })),
     };
     for (const member of room.members) {
       if (member.socket) send(member.socket, payload);
     }
+  }
+
+  function broadcastChat(room, entry) {
+    const payload = JSON.stringify({ type: 'chat', ...entry });
+    for (const member of room.members) {
+      if (member.socket && member.socket.readyState === WebSocket.OPEN) member.socket.send(payload);
+    }
+  }
+
+  function sendChatHistory(ws, room) {
+    send(ws, { type: 'chatHistory', messages: room.chatLog || [] });
+  }
+
+  // 房间聊天：与游戏进程无关，等待开局和游戏进行中都可用。
+  function handleChat(ws, msg) {
+    const room = rooms.get(ws.roomId);
+    if (!room) return sendError(ws, '你当前不在房间中', 'NOT_IN_ROOM');
+    const member = room.members[ws.playerId];
+    if (!member || member.identityKey !== identityKey(ws.identity) || member.socket !== ws) {
+      return sendError(ws, '当前连接没有该玩家席位', 'INVALID_SEAT');
+    }
+    const text = String(msg.text || '').replace(/[\r\n\t]+/g, ' ').trim();
+    if (!text) return sendError(ws, '消息不能为空', 'EMPTY_MESSAGE');
+    if (text.length > CHAT_MAX_LENGTH) return sendError(ws, `消息最长 ${CHAT_MAX_LENGTH} 个字符`, 'MESSAGE_TOO_LONG');
+    const now = Date.now();
+    if (ws.lastChatAt && now - ws.lastChatAt < CHAT_RATE_LIMIT_MS) {
+      return sendError(ws, '发送太频繁，请稍等再试', 'RATE_LIMITED');
+    }
+    ws.lastChatAt = now;
+    if (!room.chatLog) room.chatLog = [];
+    const entry = { playerId: member.playerId, name: member.name, avatar: member.avatar, text, ts: now };
+    room.chatLog.push(entry);
+    if (room.chatLog.length > CHAT_HISTORY_LIMIT) room.chatLog.splice(0, room.chatLog.length - CHAT_HISTORY_LIMIT);
+    broadcastChat(room, entry);
   }
 
   function identityKey(identity) {
@@ -240,6 +297,7 @@ function createMachiServer(options = {}) {
       name: member.name,
       reconnect,
     });
+    sendChatHistory(ws, room);
     if (room.game) broadcastGame(room);
     else sendWaiting(room);
     broadcastLobby();
@@ -280,6 +338,9 @@ function createMachiServer(options = {}) {
     if (room.members.every(item => !item.identityKey)) {
       room.members = [];
       room.game = null;
+      room.chatLog = [];
+      if(room.taskTimer)clearTimeout(room.taskTimer);
+      room.dlcEnabled = false;
       console.log(`[reset] 房间 ${room.id} 已恢复为空房`);
     } else {
       broadcastGame(room);
@@ -288,11 +349,20 @@ function createMachiServer(options = {}) {
   }
 
   function startGame(room) {
-    room.game = E.createGame(room.members.map(member => member.name));
+    room.game = E.createGame(room.members.map(member => member.name), {dlcEnabled:room.dlcEnabled});
+    if(room.game.dlc){
+      const startedGame=room.game;
+      room.taskTimer=setTimeout(()=>{
+        if(room.game!==startedGame||!room.game.dlc.selecting)return;
+        D.finishTaskSelection(room.game);broadcastGame(room);
+      },30000);
+      room.taskTimer.unref?.();
+    }
     room.members.forEach((member, index) => {
       member.playerId = index;
       if (member.socket) member.socket.playerId = index;
       room.game.players[index].connected = member.connected;
+      room.game.players[index].avatar = member.avatar;
     });
     console.log(`[start] 房间 ${room.id} 开局`);
     broadcastGame(room);
@@ -397,13 +467,14 @@ function createMachiServer(options = {}) {
       );
     }
     if (room.game) return sendError(ws, '该房间游戏已经开始', 'ROOM_STARTED');
-    if (room.members.length >= MAX_PLAYERS) return sendError(ws, '该房间已满', 'ROOM_FULL');
+    if (room.members.length >= (room.testRoom ? 1 : MAX_PLAYERS)) return sendError(ws, '该房间已满', 'ROOM_FULL');
 
     const member = {
       playerId: room.members.length,
       identityKey: key,
       deviceIds: new Set([ws.deviceId]),
       name: ws.identity.nickname,
+      avatar: ['dog','chick','fish','duck'][room.members.length],
       connected: true,
       socket: null,
       cleanupTimer: null,
@@ -411,7 +482,7 @@ function createMachiServer(options = {}) {
     room.members.push(member);
     console.log(`[join] 房间 ${room.id}，${member.name}，当前人数 ${room.members.length}`);
     attachToMember(ws, room, member, false);
-    if (room.members.length === MAX_PLAYERS) startGame(room);
+    if (!room.testRoom && room.members.length === MAX_PLAYERS) startGame(room);
   }
 
   function handleLeaveRoom(ws) {
@@ -445,9 +516,25 @@ function createMachiServer(options = {}) {
       return sendError(ws, '当前连接没有该玩家席位', 'INVALID_SEAT');
     }
     if (game.gameOver) return sendError(ws, '游戏已经结束', 'GAME_OVER');
+    if(msg.type==='chooseRole'){
+      const result=D.chooseRole(game,ws.playerId,msg.role);
+      if(!result.ok)return sendError(ws,result.reason,'INVALID_ROLE');
+      broadcastGame(room);return;
+    }
+    if (msg.type === 'chooseTask') {
+      const result = D.chooseTask(game,ws.playerId,msg.taskId);
+      if(!result.ok)return sendError(ws,result.reason,'INVALID_TASK');
+      broadcastGame(room);return;
+    }
+    if(game.dlc?.selecting)return sendError(ws,'请先选择角色和城镇任务，30秒后自动选择','TASK_SELECTION');
     if (ws.playerId !== game.current) return sendError(ws, '还没轮到你', 'NOT_YOUR_TURN');
 
     const player = game.players[game.current];
+    if(msg.type==='useRole'){
+      const result=D.useRole(game,player);
+      if(!result.ok)return sendError(ws,result.reason,'ROLE_UNAVAILABLE');
+      broadcastGame(room);return;
+    }
     if (msg.type === 'roll') {
       if (game.dice) return sendError(ws, '本回合已掷过', 'ALREADY_ROLLED');
       const count = msg.count === 2 && player.landmarks.train ? 2 : 1;
@@ -468,6 +555,8 @@ function createMachiServer(options = {}) {
 
     if (msg.type === 'choice') {
       if (!game.pendingChoice) return sendError(ws, '当前没有待选择', 'NO_PENDING_CHOICE');
+      const allowed = game.pendingChoice.type==='askReroll' ? ['accept','reroll'] : [game.pendingChoice.type];
+      if(!allowed.includes(msg.choice?.type))return sendError(ws,'请完成当前选择','INVALID_CHOICE');
       const result = E.handleChoice(game, player.id, msg.choice || {});
       if (!result.ok) return sendError(ws, result.error, 'INVALID_CHOICE');
       game.log.push(...result.events.map(text => ({ text, turn: game.turnNumber })));
@@ -477,14 +566,14 @@ function createMachiServer(options = {}) {
     }
 
     if (msg.type === 'buy') {
-      const result = E.buyCard(game, msg.cardId);
+      const result = E.buyCard(game, msg.cardId, msg.discount || 'none');
       if (!result.ok) sendError(ws, result.reason, 'BUY_FAILED');
       broadcastGame(room);
       return;
     }
 
     if (msg.type === 'build') {
-      const result = E.buildLandmark(game, msg.landmarkId);
+      const result = E.buildLandmark(game, msg.landmarkId, msg.discount || 'none');
       if (!result.ok) sendError(ws, result.reason, 'BUILD_FAILED');
       broadcastGame(room);
       return;
@@ -492,6 +581,7 @@ function createMachiServer(options = {}) {
 
     if (msg.type === 'endTurn') {
       if (game.pendingChoice) return sendError(ws, '还有选择未完成', 'PENDING_CHOICE');
+      if (!game.settled || !game.dice) return sendError(ws,'请先掷骰并完成结算','NOT_SETTLED');
       if (E.isWin(player)) {
         broadcastGame(room);
         return;
@@ -556,12 +646,20 @@ function createMachiServer(options = {}) {
       if (msg.type === 'joinRoom') return handleJoinRoom(ws, msg);
       if (msg.type === 'leaveRoom') return handleLeaveRoom(ws);
       if (msg.type === 'createRoom') {
-        const room = createRoom();
+        const room = createRoom(msg.dlcEnabled);
         broadcastLobby();
         send(ws, { type: 'roomCreated', roomId: room.id });
         return;
       }
+      if(msg.type==='setDlc'){
+        const room=rooms.get(ws.roomId);
+        if(!room||room.game)return sendError(ws,'只能在等待开局时修改DLC','SETTINGS_LOCKED');
+        if(room.members[0]?.socket!==ws)return sendError(ws,'只有房主可以修改DLC','HOST_ONLY');
+        if(typeof msg.enabled!=='boolean')return sendError(ws,'DLC开关值无效','INVALID_SETTING');
+        room.dlcEnabled=msg.enabled;sendWaiting(room);broadcastLobby();return;
+      }
       if (msg.type === 'requestLobby') return sendLobby(ws);
+      if (msg.type === 'chat') return handleChat(ws, msg);
       if (msg.type === 'logout') {
         if (ws.roomId) return sendError(ws, '请先退出当前房间', 'LEAVE_ROOM_FIRST');
         sessions.delete(ws.sessionToken);
@@ -570,7 +668,19 @@ function createMachiServer(options = {}) {
         send(ws, { type: 'loggedOut' });
         return;
       }
-      if (['roll', 'choice', 'buy', 'build', 'endTurn'].includes(msg.type)) {
+      if(msg.type==='setAvatar'||msg.type==='startTest'){
+        const room=rooms.get(ws.roomId),member=room?.members[ws.playerId];
+        if(!member||member.socket!==ws)return sendError(ws,'当前没有玩家席位');
+        if(msg.type==='startTest'){
+          if(!room.testRoom||room.game)return sendError(ws,'仅等待中的测试房间可手动开始');
+          startGame(room);return;
+        }
+        if(!['dog','chick','fish','duck'].includes(msg.avatar))return sendError(ws,'无效头像');
+        member.avatar=msg.avatar;
+        if(room.game){room.game.players[ws.playerId].avatar=msg.avatar;broadcastGame(room);}else sendWaiting(room);
+        return;
+      }
+      if (['roll', 'choice', 'buy', 'build', 'endTurn', 'chooseTask', 'chooseRole', 'useRole'].includes(msg.type)) {
         handleGameAction(ws, msg);
       }
     });

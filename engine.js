@@ -1,10 +1,11 @@
 // engine.js
 const { CARDS, LANDMARKS, UNIQUE_CARDS, SIX_CARDS, createCardPool } = require('./cards');
 const crypto = require('crypto');
+const D = require('./dlc1/runtime');
 
 // ---------- 初始化 ----------
-function createGame(playerNames) {
-  const pool = createCardPool();
+function createGame(playerNames, options = {}) {
+  const pool = createCardPool(options.dlcEnabled === true);
 
   const players = playerNames.map((name, i) => ({
     id: i,
@@ -21,7 +22,8 @@ function createGame(playerNames) {
     }
   }
 
-  return {
+  const game = {
+    dlcEnabled: options.dlcEnabled === true,
     players,
     current: 0,
     phase: 'roll',
@@ -39,6 +41,8 @@ function createGame(playerNames) {
     turnNumber: 1,          // 当前是第几回合
     log: [],                // 每条 { text, turn }
   };
+  if (game.dlcEnabled) D.init(game);
+  return game;
 }
 
 // ---------- 工具 ----------
@@ -96,21 +100,54 @@ function settle(g, rollerId, sum) {
   const events = [];
   const roller = g.players[rollerId];
 
+  // 所有收费优先；同类收费保留原有座位顺序，不能使用稍后发放的收益付款。
+  for (const owner of g.players) {
+    if (owner.id === rollerId) continue;
+    for (const cardId of Object.keys(owner.cards)) {
+      const card = CARDS[cardId], n = owner.cards[cardId];
+      if (!card || n <= 0 || (card.dlc && !g.dlcEnabled) || card.trigger !== 'other' || !card.points.includes(sum)) continue;
+      const amount = card.dlc ? D.income(card, owner, g) : card.effect.amount + bonusFor(owner, cardId);
+      const paid = transferUpTo(roller, owner, amount * n);
+      events.push(`${roller.name} 向 ${owner.name} 支付 ${paid}（${card.name} x${n}，应付 ${amount * n}）`);
+    }
+  }
+  g.incomePending = true;
+  if (sum === 6 && g.players.length > 1) {
+    // 体育馆/电视塔确认完毕后才发系统收益（包含DLC博物馆）。
+    if (playerHasCard(roller,'stadium')) return {events,needChoice:{type:'askStadium',rollerId}};
+    if (playerHasCard(roller,'tvStation')) return {events,needChoice:{type:'askTv',rollerId}};
+  }
+  const needChoice = finishIncome(g, rollerId, events);
+  return {events,needChoice};
+}
+
+function finishIncome(g, rollerId, events) {
+  const roller = g.players[rollerId];
+  if (!g.incomePending) return mallChoice(g, rollerId);
+  g.incomePending = false;
+  const sum = g.dice.sum;
+  const triggered = [];
+
   for (const owner of g.players) {
     for (const cardId of Object.keys(owner.cards)) {
       const n = owner.cards[cardId];
       if (n <= 0) continue;
       const card = CARDS[cardId];
+      if (!card || (card.dlc && !g.dlcEnabled)) continue;
       if (!card.points.includes(sum)) continue;
 
       if (card.trigger === 'any') {
-        owner.money += card.effect.amount * n;
-        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${card.effect.amount * n}`);
+        const gain = (card.dlc ? D.income(card, owner, g) : card.effect.amount) * n;
+        owner.money += gain;
+        if (owner.id === rollerId) triggered.push(cardId);
+        events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}`);
       } else if (card.trigger === 'self') {
         if (owner.id !== rollerId) continue;
         const bonus = bonusFor(owner, cardId);
         let gain = 0;
-        if (card.effect.type === 'gain') {
+        if (card.dlc) {
+          gain = D.income(card, owner, g) * n;
+        } else if (card.effect.type === 'gain') {
           gain = (card.effect.amount + bonus) * n;
         } else if (card.effect.type === 'perCard') {
           const depCount = cardCount(owner, card.effect.dep);
@@ -121,34 +158,19 @@ function settle(g, rollerId, sum) {
           gain = (card.effect.amount + bonus) * depTotal * n;
         }
         owner.money += gain;
+        triggered.push(cardId);
         events.push(`${owner.name} 的 ${card.name} x${n} 触发，+${gain}`);
-      } else if (card.trigger === 'other') {
-        if (owner.id === rollerId) continue;
-        const bonus = bonusFor(owner, cardId);
-        const requested = (card.effect.amount + bonus) * n;
-        const paid = transferUpTo(roller, owner, requested);
-        events.push(`${roller.name} 向 ${owner.name} 支付 ${paid}（${card.name} x${n}，应付 ${requested}）`);
       }
     }
   }
 
+  D.afterIncome(g, roller, triggered, events);
   updateExtraTurn(g, roller, events);
-
-  let needChoice = null;
-  if (sum === 6) {
-    needChoice = buildSixChoice(g, rollerId);
-    if (!needChoice) {
-      events.push(`${roller.name} 没有可发动的 6 点卡`);
-    }
-  }
-
-  return { events, needChoice };
+  return sum === 6 ? mallChoice(g, rollerId) : null;
 }
 
-function buildSixChoice(g, rollerId) {
+function mallChoice(g, rollerId) {
   const roller = g.players[rollerId];
-  if (playerHasCard(roller, 'stadium')) return { type: 'askStadium', rollerId };
-  if (playerHasCard(roller, 'tvStation')) return { type: 'askTv', rollerId };
   if (playerHasCard(roller, 'mall')) {
     const hasMyCard = Object.keys(roller.cards).some(id => roller.cards[id] > 0 && !SIX_CARDS.includes(id));
     const hasTargetCard = g.players.some(p => p.id !== rollerId && Object.keys(p.cards).some(id => p.cards[id] > 0 && !SIX_CARDS.includes(id)));
@@ -194,7 +216,7 @@ function handleChoice(g, rollerId, choice) {
     } else {
       events.push(`${roller.name} 跳过体育馆`);
     }
-    return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'stadium') };
+    return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'stadium', events) };
   }
 
   if (choice.type === 'askTv') {
@@ -203,7 +225,7 @@ function handleChoice(g, rollerId, choice) {
       return { ok:true, events, needChoice: { type: 'tvPickTarget', rollerId } };
     } else {
       events.push(`${roller.name} 跳过电视塔`);
-      return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'tvStation') };
+      return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'tvStation', events) };
     }
   }
 
@@ -212,7 +234,7 @@ function handleChoice(g, rollerId, choice) {
     if (!target || target.id === rollerId) return { ok:false, error:'无效目标' };
     const paid = transferUpTo(target, roller, 5);
     events.push(`${roller.name} 电视塔：向 ${target.name} 收 ${paid}`);
-    return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'tvStation') };
+    return { ok:true, events, needChoice: nextSixChoice(g, rollerId, 'tvStation', events) };
   }
 
   if (choice.type === 'askMall') {
@@ -251,91 +273,88 @@ function handleChoice(g, rollerId, choice) {
     target.cards[targetCardId] -= 1;
     roller.cards[targetCardId] = (roller.cards[targetCardId] || 0) + 1;
     events.push(`${roller.name} 用 ${CARDS[myCardId].name} 交换了 ${target.name} 的 ${CARDS[targetCardId].name}`);
+    D.checkTasks(g);
     return { ok:true, events, needChoice: null };
   }
 
   return { ok:false, error:'未知的选择类型' };
 }
 
-function nextSixChoice(g, rollerId, after) {
-  const roller = g.players[rollerId];
-  if (after === 'stadium') {
-    if (playerHasCard(roller, 'tvStation')) return { type: 'askTv', rollerId };
-    if (playerHasCard(roller, 'mall')) {
-      const hasMyCard = Object.keys(roller.cards).some(id => roller.cards[id] > 0 && !SIX_CARDS.includes(id));
-      const hasTargetCard = g.players.some(p => p.id !== rollerId && Object.keys(p.cards).some(id => p.cards[id] > 0 && !SIX_CARDS.includes(id)));
-      if (hasMyCard && hasTargetCard) return { type: 'askMall', rollerId };
-    }
-    return null;
-  }
-  if (after === 'tvStation') {
-    if (playerHasCard(roller, 'mall')) {
-      const hasMyCard = Object.keys(roller.cards).some(id => roller.cards[id] > 0 && !SIX_CARDS.includes(id));
-      const hasTargetCard = g.players.some(p => p.id !== rollerId && Object.keys(p.cards).some(id => p.cards[id] > 0 && !SIX_CARDS.includes(id)));
-      if (hasMyCard && hasTargetCard) return { type: 'askMall', rollerId };
-    }
-    return null;
-  }
-  return null;
+function nextSixChoice(g, rollerId, after, events) {
+  if (after === 'stadium' && playerHasCard(g.players[rollerId], 'tvStation')) return {type:'askTv',rollerId};
+  return finishIncome(g, rollerId, events);
 }
 
 // ---------- 购买 ----------
-function canBuy(g, cardId) {
+function canBuy(g, cardId, source = 'none') {
   const p = g.players[g.current];
   const card = CARDS[cardId];
   if (!card) return { ok:false, reason:'无此卡' };
+  if (g.gameOver || g.dlc?.selecting) return {ok:false,reason:'当前不能购买'};
+  if (card.dlc && !g.dlcEnabled) return {ok:false,reason:'本房间未开启DLC'};
   if (g.pendingChoice) return { ok:false, reason:'还有选择未完成' };
   if (!g.settled) return { ok:false, reason:'尚未结算' };
   if (g.boughtThisTurn) return { ok:false, reason:'本回合已购买过卡牌' };
   if (!g.dice) return { ok:false, reason:'尚未掷骰' };
   if (!card.points.includes(g.dice.sum)) return { ok:false, reason:'点数不匹配' };
-  if (p.money < card.cost) return { ok:false, reason:'钱不够' };
+  const quote = D.selectQuote(g,p,'buy',cardId,card.cost,source);
+  if (!quote) return {ok:false,reason:'优惠不可用'};
+  if (p.money < quote.cost) return { ok:false, reason:'钱不够' };
   if (UNIQUE_CARDS.includes(cardId) && playerHasCard(p, cardId)) return { ok:false, reason:'该 6 点卡已拥有' };
   if ((g.cardPool[cardId] || 0) <= 0) return { ok:false, reason:'该卡已被买断' };
   return { ok:true };
 }
 
-function buyCard(g, cardId) {
-  const chk = canBuy(g, cardId);
+function buyCard(g, cardId, source = 'none') {
+  const chk = canBuy(g, cardId, source);
   if (!chk.ok) return chk;
   const p = g.players[g.current];
   const card = CARDS[cardId];
-  p.money -= card.cost;
+  const quote = D.selectQuote(g,p,'buy',cardId,card.cost,source);
+  p.money -= quote.cost;
+  D.consume(g,p,quote);
   p.cards[cardId] = (p.cards[cardId] || 0) + 1;
   g.cardPool[cardId] -= 1;
   g.boughtThisTurn = true;
-  log(g, `${p.name} 购买 ${card.name}，花费 ${card.cost}（剩余 ${g.cardPool[cardId]} 张）`);
+  log(g, `${p.name} 购买 ${card.name}，花费 ${quote.cost}（${quote.label}，剩余 ${g.cardPool[cardId]} 张）`);
+  D.checkTasks(g);
   return { ok:true };
 }
 
 // ---------- 建设 ----------
-function canBuild(g, landmarkId) {
+function canBuild(g, landmarkId, source = 'none') {
   const p = g.players[g.current];
   const lm = LANDMARKS[landmarkId];
   if (!lm) return { ok:false, reason:'无此地标' };
+  if (g.gameOver || g.dlc?.selecting) return {ok:false,reason:'当前不能建设'};
   if (g.pendingChoice) return { ok:false, reason:'还有选择未完成' };
   if (!g.settled) return { ok:false, reason:'尚未结算' };
   if (g.builtThisTurn) return { ok:false, reason:'本回合已建设过地标' };
   if (p.landmarks[landmarkId]) return { ok:false, reason:'已建成' };
-  if (p.money < lm.cost) return { ok:false, reason:'钱不够' };
+  const quote = D.selectQuote(g,p,'build',landmarkId,lm.cost,source);
+  if (!quote) return {ok:false,reason:'优惠不可用'};
+  if (p.money < quote.cost) return { ok:false, reason:'钱不够' };
   return { ok:true };
 }
 
-function buildLandmark(g, landmarkId) {
-  const chk = canBuild(g, landmarkId);
+function buildLandmark(g, landmarkId, source = 'none') {
+  const chk = canBuild(g, landmarkId, source);
   if (!chk.ok) return chk;
   const p = g.players[g.current];
   const lm = LANDMARKS[landmarkId];
-  p.money -= lm.cost;
+  const quote = D.selectQuote(g,p,'build',landmarkId,lm.cost,source);
+  p.money -= quote.cost;
+  D.consume(g,p,quote);
   p.landmarks[landmarkId] = true;
   g.builtThisTurn = true;
-  log(g, `${p.name} 建设 ${lm.name}，花费 ${lm.cost}`);
+  log(g, `${p.name} 建设 ${lm.name}，花费 ${quote.cost}（${quote.label}）`);
   if (isWin(p)) {
     g.gameOver = true;
     g.winnerId = p.id;
     g.phase = 'finished';
     log(g, `🎉 ${p.name} 建成 4 个地标，获胜！`);
   }
+  D.afterBuild(g,p);
   return { ok:true };
 }
 
@@ -348,6 +367,7 @@ function endTurn(g) {
   const extraTurn = Boolean(g.extraTurn);
   const playerId = g.current;
   if (!extraTurn) g.current = (g.current + 1) % g.players.length;
+  D.end(g,g.players[playerId],extraTurn);
   g.dice = null;
   g.rerolled = false;
   g.settled = false;

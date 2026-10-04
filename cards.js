@@ -25,8 +25,12 @@ const CARDS = {
   farm:       { id:'farm',       name:'农产品工厂', cost:2, points:[11,12],  trigger:'self',  limit:7,  effect:{type:'perCardMulti', deps:['wheat','orchard'], amount:2} },
 };
 
-const UNIQUE_CARDS = ['stadium', 'tvStation', 'mall'];
-const SIX_CARDS = ['stadium', 'tvStation', 'mall'];
+const DLC1 = require('./dlc1/catalog');
+for (const card of DLC1.buildings) {
+  CARDS[card.id] = { ...card, dlc:true, trigger:({green:'self',blue:'any',red:'other',purple:'self'})[card.color], effect:{type:'dlc', rule:card.effect, amount:card.amount} };
+}
+const UNIQUE_CARDS = ['stadium', 'tvStation', 'mall', 'museum'];
+const SIX_CARDS = UNIQUE_CARDS;
 
 const LANDMARKS = {
   train:  { id:'train',  name:'火车站',   cost:4  },
@@ -36,9 +40,9 @@ const LANDMARKS = {
 };
 
 // 生成初始公共牌堆：每种卡剩余数量 = limit
-function createCardPool() {
+function createCardPool(dlcEnabled = false) {
   const pool = {};
-  for (const id of Object.keys(CARDS)) pool[id] = CARDS[id].limit;
+  for (const id of Object.keys(CARDS)) if (!CARDS[id].dlc || dlcEnabled) pool[id] = CARDS[id].limit;
   return pool;
 }
 

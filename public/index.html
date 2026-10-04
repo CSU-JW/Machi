@@ -130,7 +130,7 @@
       .account-info { width: 100%; justify-content: space-between; }
     }
   </style>
-  <link rel="stylesheet" href="style.css?v=20261003">
+  <link rel="stylesheet" href="style.css?v=20261004-chat">
 </head>
 <body>
   <section id="auth" class="screen active">
@@ -166,7 +166,7 @@
       <div><h2>联机大厅</h2><span class="helper">选择一个等待中的房间加入</span></div>
       <div class="account-info"><span id="profileName"></span><button id="logoutButton" class="secondary">退出登录</button></div>
     </div>
-    <div class="lobby-heading"><h3>房间列表</h3><button id="createRoomButton" class="primary">＋ 创建房间</button></div>
+    <div class="lobby-heading"><h3>房间列表</h3><label><input id="createDlc" type="checkbox"> 新房间启用海滨假日 DLC</label><button id="createRoomButton" class="primary">＋ 创建房间</button></div>
     <div id="rooms" class="rooms"></div>
   </section>
 
@@ -175,7 +175,17 @@
       <div class="waiting-dots">● ● ●</div>
       <h2>房间 <span id="waitingRoomId"></span></h2>
       <p id="waitingText" class="helper"></p>
+      <label class="dlc-setting"><input id="roomDlc" type="checkbox"> 启用海滨假日 DLC</label><p id="dlcSettingHint" class="helper"></p>
       <div id="waitingPlayers" class="seat-list"></div>
+      <section class="chat" id="waitingChat">
+        <div class="chat-head">💬 房间聊天</div>
+        <div class="chat-messages" id="waitingChatMessages"></div>
+        <p id="waitingChatError" class="chat-error"></p>
+        <form id="waitingChatForm" class="chat-form">
+          <input id="waitingChatInput" type="text" maxlength="300" placeholder="和房间里的玩家聊聊天…" autocomplete="off">
+          <button class="primary" type="submit">发送</button>
+        </form>
+      </section>
       <button id="leaveRoomButton" class="danger-btn">退出房间，返回大厅</button>
     </div>
   </section>
@@ -186,10 +196,20 @@
       <div class="account-info"><span id="gameProfile" class="helper"></span><button id="leaveGameButton" class="danger-btn">退出本局</button></div>
     </div>
     <div class="turn-banner" id="turnBanner"></div>
+    <div id="dlcPanel" class="dlc-panel" hidden></div>
     <div class="dice-area"><span id="dice"></span></div>
     <div class="players" id="players"></div>
     <div class="actions" id="actions"></div>
     <div class="log" id="log"></div>
+    <section class="chat" id="chat">
+      <div class="chat-head">💬 房间聊天<button id="chatToggle" type="button" aria-expanded="true">收起</button><span id="chatUnread" class="chat-unread" hidden></span></div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <p id="chatError" class="chat-error"></p>
+      <form id="chatForm" class="chat-form">
+        <input id="chatInput" type="text" maxlength="300" placeholder="和房间里的玩家聊聊天…" autocomplete="off">
+        <button class="primary" type="submit">发送</button>
+      </form>
+    </section>
   </section>
 
   <div id="cardModal" class="modal-layer" aria-hidden="true">
@@ -204,6 +224,7 @@
       </div>
       <p id="cardModalDescription" class="card-description"></p>
       <p id="cardModalStatus" class="card-status"></p>
+      <label id="discountLabel" hidden>支付优惠 <select id="cardDiscount"></select></label>
       <div class="modal-actions">
         <button id="cardModalCancel" class="secondary" type="button">返回</button>
         <button id="cardConfirmButton" class="primary" type="button">确认购买</button>
@@ -223,7 +244,9 @@
     </div>
   </div>
 
+  <dialog id="playerDialog" class="profile-dialog" aria-labelledby="playerTitle"><h3 id="playerTitle"></h3><div id="playerDetails"></div><form method="dialog"><button class="primary">关闭</button></form></dialog>
   <div id="connectionStatus">连接已断开，正在重连…</div>
-  <script src="client.js?v=20261003-ui"></script>
+  <script src="/dlc1/catalog.js?v=20261003-dlc1"></script>
+  <script src="client.js?v=20261004-chat"></script>
 </body>
 </html>

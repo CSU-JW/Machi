@@ -1,1 +1,8 @@
 node_modules/
+data/
+.npm-cache/
+test/.tmp-*/
+.deploy-tools/
+.python-deps/
+.pip-tmp/
+.pip-log*.txt

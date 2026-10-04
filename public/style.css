@@ -11,6 +11,29 @@
   --line: #e4d5bd;
 }
 
+.dlc-panel {background:#f6edff;border:1px solid #cbb9df;border-radius:16px;padding:16px;margin:16px 0;font-size:14px;line-height:1.6;}
+.dlc-panel[hidden]{display:none}
+.dlc-panel button {white-space:pre-line;margin:5px;padding:12px;border:1px solid #ae90cc;border-radius:10px;background:#fffaf5;text-align:left;max-width:100%;}
+.dlc-player {border-top:1px solid #d9cbe8;margin-top:12px;padding-top:10px;}
+.dlc-player p {margin:5px 0;}
+.build-option {display:flex;flex-direction:column;gap:6px;max-width:100%;}
+select {font:inherit;max-width:100%;padding:6px;border-radius:8px;border:1px solid #c8b99d;background:#fffdf6;}
+button:disabled{opacity:.5;cursor:not-allowed}
+.dlc-setting{display:block;padding:12px;background:#f0e7fa;border-radius:10px;}
+
+/* 分类优先级：唯一紫卡 > 红色收款 > 蓝色全场 > 绿色自己。 */
+.card-self { --card-tone: #27834b; }
+.card-any { --card-tone: #286cb3; }
+.card-other { --card-tone: #bb4146; }
+.card-six { --card-tone: #8050b2; }
+.game-card[class*="card-"], .owned-card[class*="card-"], .detail-card[class*="card-"] { border-color: var(--card-tone); }
+.game-card .card-points, .detail-card .detail-points { background: var(--card-tone); color: white; }
+.game-card .card-shade, .detail-card .detail-shade { background: linear-gradient(transparent, var(--card-tone)); }
+.tag-any { background: #dbeeff; color: #205895; }
+.tag-self { background: #ddf3e3; color: #236c3c; }
+.tag-other { background: #ffe0e0; color: #983239; }
+.tag-six, .tag-landmark { background: #edddff; color: #693c97; }
+
 body {
   position: relative;
   background:
@@ -424,3 +447,84 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
+/* Compact player profiles and golden landmark cards. */
+.player-avatar{font-size:30px;border-radius:50%;width:48px;height:48px;padding:0;margin-right:8px;background:#fff4cd;flex-shrink:0;}
+.player h3{display:flex;align-items:center;gap:4px;font-size:15px;flex-wrap:wrap;}
+.avatar-picker{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;}
+.avatar-picker .selected{outline:3px solid #d6a83d;background:#fff1ae;}
+.profile-dialog{border:0;border-radius:22px;background:#fffaf0;color:#443a2e;padding:24px;width:min(480px,85vw);box-shadow:0 20px 80px #0005;line-height:1.7;}
+.profile-dialog::backdrop{background:#302b2588;backdrop-filter:blur(4px);}
+.card-landmark{--card-tone:#d7ad38;border-color:#e1b83d!important;}
+.unbuilt{filter:grayscale(1) brightness(.62);}
+.landmarks{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px!important;margin-top:12px;max-width:420px;}
+.landmark-tile{width:100%;min-width:0;aspect-ratio:3/4;}
+.landmarks .landmark-tile .card-name{font-size:11px;bottom:28px;}
+.landmarks .landmark-tile .card-price{font-size:10px;padding:2px 5px;}
+.landmarks .landmark-tile .card-points{font-size:9px;padding:2px 4px;}
+.landmark-actions{display:grid!important;grid-template-columns:repeat(4,minmax(0,110px));gap:10px;margin-top:18px;}
+.dlc-panel p{margin:6px 0;}
+
+/* 房间聊天（等待与对局中通用，独立于游戏进程） */
+.chat {
+  margin: 16px 0;
+  padding: 14px 16px;
+  text-align: left;
+  border: 1px solid rgba(125,83,45,.18);
+  border-radius: 16px;
+  background: rgba(255,253,248,.92);
+  box-shadow: 0 12px 30px rgba(81,55,34,.14);
+}
+.chat-head { display: flex; align-items: center; gap: 10px; color: #5f4937; font-weight: 750; margin-bottom: 10px; }
+.chat-head button {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 8px;
+  color: #493828;
+  background: #f3e7d2;
+  font-size: 13px;
+}
+.chat-head button:hover { background: #eadbc0; }
+.chat-unread {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #e74c3c;
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+}
+.chat-messages {
+  height: 190px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px;
+}
+.chat-msg {
+  max-width: 80%;
+  align-self: flex-start;
+  padding: 7px 11px;
+  border: 1px solid #e8dcc8;
+  border-radius: 12px;
+  background: #fffdf6;
+  box-shadow: 0 2px 6px rgba(81,55,34,.08);
+}
+.chat-msg.mine { align-self: flex-end; background: #e7f6e9; border-color: #b9ddc0; }
+.chat-meta { display: flex; gap: 8px; font-size: 11px; color: #8a7a67; margin-bottom: 2px; }
+.chat-msg.mine .chat-meta { justify-content: flex-end; }
+.chat-text { font-size: 14px; line-height: 1.5; color: #3a2f27; word-break: break-word; white-space: pre-wrap; }
+.chat-error { min-height: 16px; margin: 4px 0 0; color: #b83d37; font-size: 12px; text-align: center; }
+.chat-form { display: flex; gap: 8px; margin-top: 8px; }
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid #c8b99d;
+  border-radius: 10px;
+  background: #fffdf6;
+}
+.chat-form input:focus { outline: 2px solid #8fce9f; border-color: #3b8f57; }
+.chat.collapsed .chat-messages, .chat.collapsed .chat-form, .chat.collapsed .chat-error { display: none; }
+.chat.collapsed .chat-head { margin-bottom: 0; }

@@ -7,6 +7,9 @@ let currentUser = null;
 let kicked = false;
 let lastGameOverKey = '';
 let cardModalPayload = null;
+let chatLog = [];
+let chatUnread = 0;
+let chatErrorTimer = null;
 
 const SESSION_KEY = 'machi_session_token';
 const DEVICE_KEY = 'machi_device_id';
@@ -75,6 +78,8 @@ function connect() {
       roomId = null;
       myId = null;
       game = null;
+      chatLog = [];
+      renderChat();
       showScreen('auth');
       setAuthMessage(msg.msg || '请登录');
       return;
@@ -91,6 +96,8 @@ function connect() {
       roomId = null;
       myId = null;
       game = null;
+      chatLog = [];
+      renderChat();
       showScreen('auth');
       setAuthMessage('已安全退出');
       return;
@@ -112,6 +119,8 @@ function connect() {
       myId = msg.playerId;
       game = null;
       lastGameOverKey = '';
+      chatLog = [];
+      renderChat();
       document.getElementById('waitingRoomId').textContent = roomId;
       showScreen('waiting');
       return;
@@ -129,6 +138,8 @@ function connect() {
       myId = null;
       game = null;
       lastGameOverKey = '';
+      chatLog = [];
+      renderChat();
       closeCardModal();
       closeGameOverModal();
       showScreen('lobby');
@@ -137,11 +148,31 @@ function connect() {
     }
 
     if (msg.type === 'state') {
+      closeCardModal();
+      document.getElementById('playerDialog').close();
       game = msg.game;
       showScreen('game');
-      document.getElementById('roomInfo').textContent = `（房间 ${roomId}，${myId + 1} 号玩家）`;
+      document.getElementById('roomInfo').textContent = roomId==='test'?'（单人测试）':`（房间 ${roomId}，${myId + 1} 号玩家）`;
       render();
       if (game.gameOver) showGameOver();
+      return;
+    }
+
+    if (msg.type === 'chatHistory') {
+      chatLog = Array.isArray(msg.messages) ? msg.messages.slice(-100) : [];
+      renderChat();
+      return;
+    }
+
+    if (msg.type === 'chat') {
+      chatLog.push(msg);
+      if (chatLog.length > 100) chatLog.splice(0, chatLog.length - 100);
+      const gameChat = document.getElementById('chat');
+      if (document.getElementById('game').classList.contains('active')
+        && gameChat.classList.contains('collapsed')) {
+        chatUnread += 1;
+      }
+      renderChat();
       return;
     }
 
@@ -154,6 +185,10 @@ function connect() {
     }
 
     if (msg.type === 'error') {
+      if (['EMPTY_MESSAGE', 'MESSAGE_TOO_LONG', 'RATE_LIMITED'].includes(msg.code)) {
+        showChatError(msg.msg || '消息发送失败');
+        return;
+      }
       alert(msg.msg || '操作失败');
     }
   };
@@ -179,7 +214,7 @@ function renderLobby(rooms) {
     const title = document.createElement('div');
     title.className = 'room-title';
     const heading = document.createElement('h3');
-    heading.textContent = `房间 ${room.id}`;
+    heading.textContent = room.testRoom ? '🧪 单人测试房间' : `房间 ${room.id}`;
     const status = document.createElement('span');
     status.className = `status${room.status === 'playing' ? ' playing' : ''}`;
     status.textContent = room.status === 'playing' ? '游戏中' : '等待中';
@@ -187,7 +222,7 @@ function renderLobby(rooms) {
 
     const count = document.createElement('div');
     count.className = 'room-count';
-    count.textContent = `${room.playerCount} / ${room.capacity} 位玩家`;
+    count.textContent = `${room.playerCount} / ${room.capacity} 位玩家 · ${room.dlcEnabled ? '🌊 海滨假日 DLC' : '原版'}`;
     const players = document.createElement('div');
     players.className = 'room-players';
     players.textContent = room.players.length ? room.players.join('、') : '暂无玩家，等你加入';
@@ -202,22 +237,27 @@ function renderLobby(rooms) {
 }
 
 function renderWaiting(msg) {
+  document.getElementById('roomDlc').checked = Boolean(msg.dlcEnabled);
+  document.getElementById('roomDlc').disabled = msg.hostId !== myId;
+  document.getElementById('dlcSettingHint').textContent = `${msg.hostId === myId ? '你是房主，可在开局前切换。' : '由房主切换。'}开局后锁定；DLC包含11种新建筑、任务、事件和角色。`;
   document.getElementById('waitingRoomId').textContent = msg.roomId;
-  document.getElementById('waitingText').textContent = `还差 ${msg.need} 人，满 4 人后自动开始游戏`;
+  document.getElementById('waitingText').textContent = msg.testRoom ? '单人练习：选好头像和模式后点击开始。' : `还差 ${msg.need} 人，满 4 人后自动开始游戏`;
   const list = document.getElementById('waitingPlayers');
   list.replaceChildren();
-  for (let index = 0; index < 4; index += 1) {
+  for (let index = 0; index < (msg.capacity || 4); index += 1) {
     const seat = document.createElement('div');
     const player = msg.players[index];
     if (player) {
       seat.className = `seat${player.connected === false ? ' offline' : ''}`;
-      seat.textContent = `${index + 1} 号位 · ${player.name}${player.id === myId ? '（你）' : ''}${player.connected === false ? ' · 离线' : ''}`;
+      seat.textContent = `${AVATARS[player.avatar]?.icon || '🐶'} ${index + 1} 号位 · ${player.name}${player.id === myId ? '（你）' : ''}${player.connected === false ? ' · 离线' : ''}`;
     } else {
       seat.className = 'seat empty';
       seat.textContent = `${index + 1} 号位 · 等待玩家`;
     }
     list.appendChild(seat);
   }
+  list.append(avatarPicker(msg.players.find(p=>p.id===myId)?.avatar));
+  if(msg.testRoom)addAction(list,'开始单人测试',{type:'startTest'});
 }
 
 function joinRoom(id) { send({ type: 'joinRoom', roomId: String(id) }); }
@@ -263,7 +303,8 @@ document.getElementById('guestForm').addEventListener('submit', event => {
   });
 });
 
-document.getElementById('createRoomButton').addEventListener('click', () => send({ type: 'createRoom' }));
+document.getElementById('createRoomButton').addEventListener('click', () => send({ type: 'createRoom', dlcEnabled:document.getElementById('createDlc').checked }));
+document.getElementById('roomDlc').addEventListener('change', event => send({type:'setDlc',enabled:event.target.checked}));
 document.getElementById('leaveRoomButton').addEventListener('click', () => send({ type: 'leaveRoom' }));
 document.getElementById('leaveGameButton').addEventListener('click', () => {
   if (confirm('退出后将放弃本局席位，且不能再回到这局游戏。确定退出吗？')) send({ type: 'leaveRoom' });
@@ -337,9 +378,51 @@ const CARD_TYPE = {
   dairy:'self', orchard:'self', mine:'self', craft:'self', farm:'self',
   cafe:'other', teaHouse:'other', stadium:'six', tvStation:'six', mall:'six',
 };
-const SIX_CARDS = ['stadium','tvStation','mall'];
+const SIX_CARDS = ['stadium','tvStation','mall','museum'];
 const LANDMARK_NAMES = { train:'火车站', radio:'广播中心', mallC:'商业中心', park:'游乐园' };
 const LANDMARK_COSTS = { train:4, radio:16, mallC:13, park:22 };
+const AVATARS={dog:{icon:'🐶',name:'小狗'},chick:{icon:'🐥',name:'小鸡'},fish:{icon:'🐟',name:'小鱼'},duck:{icon:'🦆',name:'小鸭'}};
+const LANDMARK_INFO={train:'每回合可选择投掷1个或2个骰子。',radio:'最终投掷2个骰子且为对子时，本回合结束后获得额外回合。',mallC:'面包店、便利店、咖啡店、奶茶店、果园每张收入+1；奶制品、家具、农产品工厂的每份原料收益+1。不作用于DLC建筑。',park:'每回合首次投掷后可选择重投一次；只结算最终结果。投2骰仍需火车站。'};
+for(const id of Object.keys(LANDMARK_NAMES)){
+  CARD_NAMES[id]=LANDMARK_NAMES[id];CARD_COSTS[id]=LANDMARK_COSTS[id];CARD_TYPE[id]='landmark';CARD_POINTS[id]=[];CARD_DESCRIPTIONS[id]=LANDMARK_INFO[id];CARD_IMAGES[id]=`/assets/landmarks/${id}.png`;
+}
+function playerName(p){return `${p.name} [${p.dlc?(p.dlc.roleChosen?DLC1.roles[p.dlc.role].name:'待选角色'):'市民'}]`;}
+function avatarPicker(selected){
+  const box=document.createElement('div');box.className='avatar-picker';
+  for(const [id,a] of Object.entries(AVATARS)){const b=addAction(box,`${a.icon} ${a.name}`,{type:'setAvatar',avatar:id});b.classList.toggle('selected',id===selected);b.setAttribute('aria-pressed',String(id===selected));}
+  return box;
+}
+function openPlayer(p){
+  const dialog=document.getElementById('playerDialog'),body=document.getElementById('playerDetails');body.replaceChildren();
+  document.getElementById('playerTitle').textContent=`${AVATARS[p.avatar]?.icon||'🐶'} ${playerName(p)}`;
+  if(p.dlc)body.append(roleTaskDetails(p));else addTip(body,'原版模式：无角色技能和任务。');
+  if(p.id===myId){addTip(body,'更换头像');body.append(avatarPicker(p.avatar));}
+  dialog.showModal();
+}
+function landmarkTile(id,p){
+  const built=p.landmarks[id];
+  const tile=createCardTile(id,{status:built?'已建成':'未建成'});
+  tile.classList.add('landmark-tile');tile.classList.toggle('unbuilt',!built);
+  tile.querySelector('.card-points').textContent=built?'✓ 已建成':'未建成';
+  tile.onclick=()=>{
+    const canBuild=p.id===myId&&!built&&!game.gameOver&&!game.dlc?.selecting&&game.current===p.id&&game.settled&&!game.pendingChoice&&!game.builtThisTurn;
+    openCardModal(id,{status:built?'已建成':'未建成',unbuilt:!built,showConfirm:canBuild,payload:canBuild?{type:'build',landmarkId:id}:null});
+  };
+  return tile;
+}
+for(const card of DLC1.buildings){
+  CARD_NAMES[card.id]=card.name;CARD_POINTS[card.id]=card.points;CARD_COSTS[card.id]=card.cost;
+  CARD_IMAGES[card.id]=`/dlc1/assets/cards/${card.id}.png`;
+  CARD_DESCRIPTIONS[card.id]=card.description;
+  CARD_TYPE[card.id]=({green:'self',blue:'any',red:'other',purple:'six'})[card.color];
+}
+function cardImage(id){return CARD_IMAGES[id].startsWith('/')?CARD_IMAGES[id]:`assets/cards/${CARD_IMAGES[id]}`;}
+function priceOptions(kind,id,cost){return game?.shopQuotes?.[kind]?.[id] || [{source:'none',label:'原价',cost,rebate:0}];}
+function fillDiscount(select,quotes){
+  select.replaceChildren();
+  const sorted=[...quotes].sort((a,b)=>(a.cost-a.rebate)-(b.cost-b.rebate)||a.cost-b.cost);
+  for(const q of sorted){const o=document.createElement('option');o.value=q.source;o.textContent=`${q.label} · 支付${q.cost}元`;select.append(o);}
+}
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, character => ({
@@ -369,15 +452,18 @@ function closeCardModal() {
 
 function openCardModal(cardId, options = {}) {
   const modal = document.getElementById('cardModal');
-  document.getElementById('cardModalArt').src = `assets/cards/${CARD_IMAGES[cardId]}`;
+  modal.querySelector('.detail-card').className = `detail-card card-${CARD_TYPE[cardId] || 'self'}`;
+  modal.querySelector('.detail-card').classList.toggle('unbuilt',Boolean(options.unbuilt));
+  document.getElementById('cardModalArt').src = cardImage(cardId);
   document.getElementById('cardModalArt').alt = `${CARD_NAMES[cardId]}卡通图`;
-  document.getElementById('cardModalPoints').textContent = `🎲 ${cardPointLabel(cardId)}`;
+  document.getElementById('cardModalPoints').textContent = LANDMARK_NAMES[cardId]?'🏛️ 地标':`🎲 ${cardPointLabel(cardId)}`;
   document.getElementById('cardModalCost').textContent = `🪙 ${CARD_COSTS[cardId]}`;
   document.getElementById('cardModalTitle').textContent = CARD_NAMES[cardId];
   document.getElementById('cardModalDescription').textContent = CARD_DESCRIPTIONS[cardId];
 
   const status = document.getElementById('cardModalStatus');
-  status.textContent = options.status || '';
+  const category = { self:'绿色 · 自己回合收益', any:'蓝色 · 任意玩家回合收益', other:'红色 · 向其他玩家收款', six:'紫色 · 每人限一张' }[CARD_TYPE[cardId]];
+  status.textContent = [category, options.status].filter(Boolean).join(' · ');
   status.classList.toggle('error', Boolean(options.disabledReason));
 
   const confirmButton = document.getElementById('cardConfirmButton');
@@ -385,6 +471,22 @@ function openCardModal(cardId, options = {}) {
   confirmButton.hidden = !options.showConfirm;
   confirmButton.disabled = Boolean(options.disabledReason) || !cardModalPayload;
   confirmButton.textContent = options.confirmLabel || '确认购买';
+  const discountLabel=document.getElementById('discountLabel'), select=document.getElementById('cardDiscount');
+  discountLabel.hidden=!options.showConfirm;
+  if(options.showConfirm){
+    const kind=LANDMARK_NAMES[cardId]?'build':'buy';
+    const quotes=priceOptions(kind,cardId,CARD_COSTS[cardId]);fillDiscount(select,quotes);
+    const update=()=>{
+      const q=quotes.find(q=>q.source===select.value);
+      const reason=options.disabledReason || (findMe().money<q.cost?'资金不足':'');
+      confirmButton.disabled=Boolean(reason);
+      confirmButton.textContent=`${kind==='build'?'确认建设':'确认购买'} · ${q.cost} 元`;
+      cardModalPayload=reason?null:kind==='build'?{type:'build',landmarkId:cardId,discount:q.source}:{type:'buy',cardId,discount:q.source};
+      status.textContent=[category, options.status,reason].filter(Boolean).join(' · ');
+      status.classList.toggle('error',Boolean(reason));
+    };
+    select.onchange=update;update();
+  }
   modal.classList.add('active');
   modal.setAttribute('aria-hidden', 'false');
   document.getElementById('cardModalClose').focus();
@@ -397,7 +499,7 @@ function createCardTile(cardId, options = {}) {
   button.setAttribute('aria-label', `查看${CARD_NAMES[cardId]}详情`);
 
   const image = document.createElement('img');
-  image.src = `assets/cards/${CARD_IMAGES[cardId]}`;
+  image.src = cardImage(cardId);
   image.alt = `${CARD_NAMES[cardId]}卡通图`;
   image.loading = options.eager ? 'eager' : 'lazy';
 
@@ -438,10 +540,10 @@ function createCardTile(cardId, options = {}) {
 function createOwnedCard(cardId, count) {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'owned-card';
+  button.className = `owned-card card-${CARD_TYPE[cardId] || 'self'}`;
   button.setAttribute('aria-label', `查看${CARD_NAMES[cardId]}详情，拥有 ${count} 张`);
   const image = document.createElement('img');
-  image.src = `assets/cards/${CARD_IMAGES[cardId]}`;
+  image.src = cardImage(cardId);
   image.alt = '';
   image.loading = 'lazy';
   const badge = document.createElement('span');
@@ -469,7 +571,7 @@ function showGameOver() {
   document.getElementById('gameOverTitle').textContent = winner.id === myId ? '恭喜，你获胜了！' : '游戏结束';
   document.getElementById('gameOverText').textContent = winner.id === myId
     ? '你率先建成了全部 4 个地标，梦想小镇圆满落成！'
-    : `${winner.name} 率先建成全部 4 个地标，获得胜利。`;
+    : `${playerName(winner)} 率先建成全部 4 个地标，获得胜利。`;
   const modal = document.getElementById('gameOverModal');
   modal.classList.add('active');
   modal.setAttribute('aria-hidden', 'false');
@@ -497,18 +599,19 @@ function animateDice(realSum, realValues) {
 function render() {
   if (!game) return;
   const me = findMe();
+  renderDlcPanel(me);
   const banner = document.getElementById('turnBanner');
   const currentPlayer = game.players[game.current];
   if (game.gameOver) {
     const winner = game.players.find(player => player.id === game.winnerId);
-    banner.textContent = `🏆 ${winner ? winner.name : '玩家'} 获胜 · 游戏结束`;
+    banner.textContent = `🏆 ${winner ? playerName(winner) : '玩家'} 获胜 · 游戏结束`;
     banner.classList.remove('me');
   } else if (me && game.current === me.id) {
     const extraTurnText = game.extraTurn ? ' · 广播中心已触发，结束后再行动一次' : '';
     banner.textContent = `⚡ 轮到你了（第 ${game.turnNumber} 回合）${extraTurnText}`;
     banner.classList.add('me');
   } else {
-    banner.textContent = `⏳ 轮到 ${currentPlayer.name}（第 ${game.turnNumber} 回合）`;
+    banner.textContent = `⏳ 轮到 ${playerName(currentPlayer)}（第 ${game.turnNumber} 回合）`;
     banner.classList.remove('me');
   }
 
@@ -525,7 +628,8 @@ function render() {
     playerPanel.className = `player${index === game.current && !game.gameOver ? ' active' : ''}${player.connected === false ? ' offline' : ''}`;
 
     const heading = document.createElement('h3');
-    heading.append(document.createTextNode(`${player.name}${me && player.id === me.id ? '（你）' : ''}`));
+    const avatar=document.createElement('button');avatar.className='player-avatar';avatar.textContent=AVATARS[player.avatar]?.icon||'🐶';avatar.setAttribute('aria-label',`查看${player.name}的角色和任务`);avatar.onclick=()=>openPlayer(player);
+    heading.append(avatar,document.createTextNode(`${playerName(player)}${me && player.id === me.id ? '（你）' : ''}`));
     if (player.connected === false) {
       const badge = document.createElement('span');
       badge.className = 'badge-offline';
@@ -544,15 +648,7 @@ function render() {
 
     const landmarks = document.createElement('div');
     landmarks.className = 'landmarks';
-    const landmarkIds = Object.keys(player.landmarks).filter(id => player.landmarks[id]);
-    if (landmarkIds.length) {
-      landmarkIds.forEach(id => {
-        const tag = document.createElement('span');
-        tag.className = 'tag tag-landmark';
-        tag.textContent = `🏛️ ${LANDMARK_NAMES[id]}`;
-        landmarks.appendChild(tag);
-      });
-    } else landmarks.textContent = '尚未建设地标';
+    Object.keys(LANDMARK_NAMES).forEach(id=>landmarks.append(landmarkTile(id,player)));
     playerPanel.append(heading, money, ownedCards, landmarks);
     playersElement.appendChild(playerPanel);
   });
@@ -564,7 +660,7 @@ function render() {
     summary.textContent = '卡牌图鉴与公共牌堆库存';
     const grid = document.createElement('div');
     grid.className = 'market-grid';
-    Object.keys(CARD_NAMES).forEach(id => grid.appendChild(createCardTile(id, {
+    Object.keys(game.cardPool).forEach(id => grid.appendChild(createCardTile(id, {
       remaining: game.cardPool[id] || 0,
       disabledReason: (game.cardPool[id] || 0) <= 0 ? '已售罄' : '',
     })));
@@ -575,6 +671,7 @@ function render() {
   const actions = document.getElementById('actions');
   actions.replaceChildren();
   const isMyTurn = me && game.current === me.id;
+  if(game.dlc?.selecting){addTip(actions,'请选择角色和任务，倒计时结束后自动选择。');renderLog();return;}
   if (game.gameOver) {
     addTip(actions, '本局已经结束，可查看最终城镇或返回大厅。');
     renderLog();
@@ -610,12 +707,11 @@ function render() {
         hint.textContent = '点击卡牌查看简要效果，再点击“确认购买”。';
         const grid = document.createElement('div');
         grid.className = 'purchase-grid';
-        const matchingIds = Object.keys(CARD_NAMES).filter(id => CARD_POINTS[id].includes(game.dice.sum));
+        const matchingIds = Object.keys(game.cardPool).filter(id => CARD_POINTS[id].includes(game.dice.sum));
         matchingIds.forEach(id => {
           const remaining = game.cardPool[id] || 0;
           let disabledReason = '';
           if (remaining <= 0) disabledReason = '牌堆已经售罄';
-          else if (me.money < CARD_COSTS[id]) disabledReason = `资金不足，还差 ${CARD_COSTS[id] - me.money} 元`;
           else if (SIX_CARDS.includes(id) && (me.cards[id] || 0) > 0) disabledReason = '该特殊卡每人只能拥有一张';
           grid.appendChild(createCardTile(id, {
             remaining,
@@ -637,9 +733,7 @@ function render() {
       if (!game.builtThisTurn) {
         for (const id of Object.keys(LANDMARK_NAMES)) {
           if (!me.landmarks[id]) {
-            const button = addAction(landmarkActions, `🏛️ 建 ${LANDMARK_NAMES[id]} · ${LANDMARK_COSTS[id]} 元`, { type: 'build', landmarkId: id });
-            button.disabled = me.money < LANDMARK_COSTS[id];
-            if (button.disabled) button.title = '资金不足';
+            landmarkActions.append(landmarkTile(id,me));
           }
         }
       } else {
@@ -698,7 +792,7 @@ function renderPendingChoice(container, me) {
   if (choice.type === 'tvPickTarget') {
     addTip(container, '电视塔：选择一名玩家，收取 5 元');
     game.players.filter(player => player.id !== me.id).forEach(player => {
-      addAction(container, player.name, { type:'choice', choice:{ type:'tvPickTarget', targetId:player.id } });
+      addAction(container, playerName(player), { type:'choice', choice:{ type:'tvPickTarget', targetId:player.id } });
     });
     return;
   }
@@ -712,7 +806,7 @@ function renderPendingChoice(container, me) {
     addTip(container, '商场：选择一个玩家进行交换');
     game.players.filter(player => player.id !== me.id).forEach(player => {
       const hasCards = Object.keys(player.cards).some(id => player.cards[id] > 0 && !SIX_CARDS.includes(id));
-      const button = addAction(container, `${player.name}${hasCards ? '' : '（无可交换卡）'}`, { type:'choice', choice:{ type:'mallPickTarget', targetId:player.id } });
+      const button = addAction(container, `${playerName(player)}${hasCards ? '' : '（无可交换卡）'}`, { type:'choice', choice:{ type:'mallPickTarget', targetId:player.id } });
       button.disabled = !hasCards;
     });
     return;
@@ -768,6 +862,130 @@ function renderLog() {
   }
   log.scrollTop = log.scrollHeight;
 }
+
+function renderDlcPanel(me){
+  const panel=document.getElementById('dlcPanel');panel.hidden=!game.dlc;panel.replaceChildren();
+  if(!game.dlc||!me)return;
+  const event=DLC1.events[game.dlc.eventIndex];
+  addTip(panel,`🌊 海滨假日 · 第${game.dlc.round}轮 · ${event.name}`);
+  const description=document.createElement('p');description.textContent=event.effect;panel.append(description);
+  if(game.dlc.selecting&&!me.dlc.roleChosen){
+    addTip(panel,'角色二选一（允许不同玩家选择同一角色）');
+    for(const id of me.dlc.roleOptions){const r=DLC1.roles[id];addAction(panel,`${r.name} · ${r.type}\n${r.effect}`,{type:'chooseRole',role:id});}
+  }
+  if(game.dlc.selecting&&!me.dlc.taskId){
+    addTip(panel,'选择本局任务：难度越高，奖励越高。开局30秒未选择将自动选入门任务和首个角色。');
+    for(const id of me.dlc.taskOptions){
+      const t=DLC1.tasks.find(t=>t.id===id);
+      addAction(panel,`${t.tier} · ${t.name}\n${t.condition}\n奖励：${t.reward}`,{type:'chooseTask',taskId:id});
+    }
+  }
+  if(!me.dlc.roleChosen)return;
+  const details=document.createElement('details');details.open=true;
+  const summary=document.createElement('summary');summary.textContent='我的技能与任务';details.append(summary);
+  for(const p of [me]){
+    const d=p.dlc,role=DLC1.roles[d.role],task=DLC1.tasks.find(t=>t.id===d.taskId);
+    const row=document.createElement('div');row.className='dlc-player';
+    const title=document.createElement('strong');title.textContent=`${playerName(p)}（${role.type}）`;
+    const info=document.createElement('p');info.textContent=role.effect;
+    const status=document.createElement('p');status.textContent=`技能已用 ${d.used}/${d.role===0?1:3} 次${[1,4].includes(d.role)&&d.used>0&&d.readyAt>d.ownTurn?` · 冷却中，距可用还差${d.readyAt-d.ownTurn}个自己的回合`:''}；任务：${task?task.name:'选择中'}${d.taskDone?' ✅ 已完成':''}`;
+    row.append(title,info,status);
+    if(task){const t=document.createElement('p');t.textContent=`${task.condition} 奖励：${task.reward}`;row.append(t);}
+    if(p.id===me.id){
+      if(d.coupons.length){const c=document.createElement('p');c.textContent='持有券：'+d.coupons.map(c=>`${c.value}元${c.kind==='buy'?'购卡':'地标'}券${d.ownTurn<c.readyAt?'（下回合生效）':''}`).join('、');row.append(c);}
+      if(d.serviceLeft){const s=document.createElement('p');s.textContent=`便民服务剩余 ${d.serviceLeft} 次`;row.append(s);}
+      if(d.role===4){const b=addAction(row,'使用会计技能 · 获得1元',{type:'useRole'});b.disabled=game.gameOver||game.dlc.selecting||game.current!==p.id||!game.settled||Boolean(game.pendingChoice)||d.used>=3||d.ownTurn<d.readyAt||p.money>2;}
+    }
+    details.append(row);
+  }
+  panel.append(details);
+}
+
+function roleTaskDetails(p){
+  const box=document.createElement('div'),d=p.dlc,role=DLC1.roles[d.role],task=DLC1.tasks.find(t=>t.id===d.taskId);
+  const skill=document.createElement('p');skill.textContent=d.roleChosen?`${role.name} · ${role.type}：${role.effect}（已用${d.used}/${d.role===0?1:3}次）`:'正在选择角色';
+  const mission=document.createElement('p');mission.textContent=task?`${d.taskDone?'✅ 已完成':'任务'} · ${task.name}：${task.condition} 奖励：${task.reward}`:'正在选择任务';
+  box.append(skill,mission);return box;
+}
+
+function chatTimeLabel(ts) {
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+}
+
+function chatLineElement(entry) {
+  const row = document.createElement('div');
+  const mine = entry.playerId === myId;
+  row.className = `chat-msg${mine ? ' mine' : ''}`;
+  const meta = document.createElement('div');
+  meta.className = 'chat-meta';
+  const who = document.createElement('span');
+  who.textContent = `${AVATARS[entry.avatar]?.icon || '💬'} ${entry.name}${mine ? '（你）' : ''}`;
+  const time = document.createElement('span');
+  time.textContent = chatTimeLabel(entry.ts);
+  meta.append(who, time);
+  const text = document.createElement('div');
+  text.className = 'chat-text';
+  text.textContent = entry.text;
+  row.append(meta, text);
+  return row;
+}
+
+function updateChatUnread() {
+  const badge = document.getElementById('chatUnread');
+  if (!badge) return;
+  badge.hidden = chatUnread === 0;
+  badge.textContent = String(chatUnread);
+}
+
+function renderChat() {
+  for (const id of ['chatMessages', 'waitingChatMessages']) {
+    const container = document.getElementById(id);
+    if (!container) continue;
+    container.replaceChildren();
+    for (const entry of chatLog) container.appendChild(chatLineElement(entry));
+    container.scrollTop = container.scrollHeight;
+  }
+  updateChatUnread();
+}
+
+function showChatError(message) {
+  for (const id of ['chatError', 'waitingChatError']) {
+    const node = document.getElementById(id);
+    if (node) node.textContent = message;
+  }
+  clearTimeout(chatErrorTimer);
+  chatErrorTimer = setTimeout(() => {
+    for (const id of ['chatError', 'waitingChatError']) {
+      const node = document.getElementById(id);
+      if (node) node.textContent = '';
+    }
+  }, 2500);
+}
+
+function submitChat(event) {
+  event.preventDefault();
+  const input = event.currentTarget.querySelector('input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  if (!send({ type: 'chat', text })) input.value = text;
+}
+
+document.getElementById('chatForm').addEventListener('submit', submitChat);
+document.getElementById('waitingChatForm').addEventListener('submit', submitChat);
+document.getElementById('chatToggle').addEventListener('click', () => {
+  const panel = document.getElementById('chat');
+  const collapsed = panel.classList.toggle('collapsed');
+  panel.querySelector('#chatToggle').setAttribute('aria-expanded', String(!collapsed));
+  if (!collapsed) chatUnread = 0;
+  updateChatUnread();
+  if (!collapsed) {
+    const messages = document.getElementById('chatMessages');
+    messages.scrollTop = messages.scrollHeight;
+  }
+});
 
 getDeviceId();
 connect();
