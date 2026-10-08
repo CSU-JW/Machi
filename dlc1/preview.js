@@ -1,7 +1,7 @@
 const labels={green:'自己收益',blue:'全场收益',red:'收取金币',purple:'每人唯一'};
 function tile(card, interactive=true){
   const el=document.createElement(interactive?'button':'div');el.className=`card ${card.color}`;
-  const img=document.createElement('img');img.src=`assets/cards/${card.id}.png`;img.alt=`${card.name}卡通建筑`;img.loading='lazy';el.append(img);
+  const img=document.createElement('img');img.src=`assets/cards/${card.id}-512.webp`;img.alt=`${card.name}卡通建筑`;img.loading='lazy';el.append(img);
   for(const [cls,text] of [['points',`🎲 ${card.points.join('～')}`],['name',card.name],['cost',`🪙 ${card.cost}`],['kind',labels[card.color]]]){const span=document.createElement('span');span.className=cls;span.textContent=text;el.append(span);}
   if(interactive){el.type='button';el.setAttribute('aria-label',`查看${card.name}详情`);el.onclick=()=>{document.getElementById('detailCard').replaceChildren(tile(card,false));document.getElementById('title').textContent=card.name;document.getElementById('description').textContent=card.description;document.getElementById('stock').textContent=`公共牌堆 ${card.limit} 张 · ${labels[card.color]} · 无商业中心加成`;document.getElementById('detail').showModal();};}return el;
 }

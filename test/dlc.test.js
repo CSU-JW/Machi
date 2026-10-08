@@ -110,10 +110,12 @@ test('采购员实际购买后才进入冷却，建筑师只使用一次',()=>{
 test('收藏家不刷重复阈值，便民服务延迟生效且最多三次',()=>{
   const g=setup(),p=g.players[0];p.dlc.role=5;p.cards={wheat:1,bakery:1,ranch:1,forest:1};p.money=0;
   D.checkTasks(g);D.checkTasks(g);assert.equal(p.money,1);
-  p.dlc.serviceLeft=3;p.dlc.serviceReady=p.dlc.ownTurn+1;
-  D.end(g,p,true);assert.equal(p.money,1);
-  for(let i=0;i<5;i++)D.end(g,p,true);
+  p.dlc.serviceLeft=3;p.dlc.serviceReady=p.dlc.ownTurn;
+  D.end(g,p,true);assert.equal(p.money,1);assert.equal(p.dlc.serviceLeft,3);
+  D.end(g,p,false);assert.equal(p.money,2);assert.equal(p.dlc.serviceLeft,2);
+  D.end(g,p,false);D.end(g,p,false);
   assert.equal(p.money,4);assert.equal(p.dlc.serviceLeft,0);
+  D.end(g,p,false);assert.equal(p.money,4);
 });
 test('事件每轮最多一次，额外回合不换事件，四位行动结束才换',()=>{
   const g=setup(),p=g.players[0];g.dlc.eventIndex=0;

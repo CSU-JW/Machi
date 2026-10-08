@@ -4,138 +4,33 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>梦想小镇 · 联机大厅</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --ink: #223047;
-      --muted: #718096;
-      --brand: #2f855a;
-      --brand-dark: #276749;
-      --soft: #edf7f1;
-      --line: #dce5df;
-      --danger: #c53030;
-      --paper: #ffffff;
-    }
-    * { box-sizing: border-box; }
-    body {
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-      margin: 0; min-height: 100vh; color: var(--ink);
-      background: linear-gradient(145deg, #edf7f1 0%, #eef3f9 50%, #f8f4eb 100%);
-    }
-    button, input { font: inherit; }
-    button { cursor: pointer; }
-    .screen { display: none; }
-    .screen.active { display: block; }
-    .panel {
-      background: rgba(255,255,255,.94); border: 1px solid rgba(255,255,255,.8);
-      border-radius: 18px; box-shadow: 0 18px 55px rgba(34,48,71,.12);
-    }
-    .brand { text-align: center; margin-bottom: 24px; }
-    .brand h1 { margin: 0; font-size: 30px; color: var(--brand-dark); }
-    .brand p { color: var(--muted); margin: 8px 0 0; }
-    #auth { max-width: 460px; margin: 55px auto; padding: 0 16px; }
-    .auth-card { padding: 28px; }
-    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 22px; }
-    .tab { border: 0; border-radius: 9px; padding: 10px 8px; background: #edf2f7; color: #526175; }
-    .tab.active { color: white; background: var(--brand); }
-    .auth-form { display: none; }
-    .auth-form.active { display: block; }
-    .field { margin: 13px 0; }
-    .field label { display: block; color: #526175; font-size: 13px; margin-bottom: 6px; }
-    .field input {
-      width: 100%; padding: 11px 12px; border: 1px solid #cbd5e0;
-      border-radius: 9px; outline: none; background: white;
-    }
-    .field input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px #c6f6d5; }
-    .primary, .secondary, .danger-btn {
-      border: 0; border-radius: 9px; padding: 10px 15px; font-weight: 650;
-    }
-    .primary { color: white; background: var(--brand); }
-    .primary:hover { background: var(--brand-dark); }
-    .secondary { color: #3f4d61; background: #edf2f7; }
-    .danger-btn { color: var(--danger); background: #fff5f5; }
-    .wide { width: 100%; margin-top: 8px; }
-    .message { min-height: 22px; color: var(--danger); margin: 14px 0 0; text-align: center; font-size: 14px; }
-    .helper { color: var(--muted); font-size: 13px; line-height: 1.6; }
-
-    #lobby, #waiting { max-width: 1120px; margin: 0 auto; padding: 24px 16px 42px; }
-    #game { max-width: 1380px; margin: 0 auto; padding: 24px 16px 42px; }
-    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 22px; }
-    .topbar h2 { margin: 0; }
-    .account-info { display: flex; align-items: center; gap: 10px; color: var(--muted); }
-    .lobby-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0 14px; }
-    .lobby-heading h3 { margin: 0; }
-    .rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 15px; }
-    .room-card { padding: 18px; }
-    .room-title { display: flex; justify-content: space-between; align-items: center; }
-    .room-title h3 { margin: 0; font-size: 21px; }
-    .status { padding: 4px 8px; border-radius: 999px; font-size: 12px; background: var(--soft); color: var(--brand-dark); }
-    .status.playing { color: #975a16; background: #fefcbf; }
-    .room-count { margin: 14px 0 8px; color: #526175; }
-    .room-players { color: var(--muted); font-size: 13px; min-height: 40px; line-height: 1.5; }
-    .room-card button { width: 100%; margin-top: 13px; }
-    .room-card button:disabled { cursor: not-allowed; opacity: .5; }
-
-    .waiting-card { max-width: 650px; margin: 45px auto; padding: 30px; text-align: center; }
-    .waiting-card h2 { margin-top: 0; }
-    .waiting-dots { color: var(--brand); font-size: 40px; letter-spacing: 4px; }
-    .seat-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 24px 0; text-align: left; }
-    .seat { background: #f7fafc; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
-    .seat.offline { opacity: .55; }
-    .seat.empty { color: #a0aec0; border-style: dashed; }
-
-    #game { display: none; }
-    #game.active { display: block; }
-    .turn-banner {
-      font-size: 22px; font-weight: bold; text-align: center;
-      padding: 12px; margin-bottom: 16px; border-radius: 10px;
-      background: #fff; border: 2px solid #4caf50;
-    }
-    .turn-banner.me { background: #e8f5e9; }
-    .dice-area { text-align: center; margin: 12px 0; min-height: 50px; }
-    #dice { font-size: 32px; font-weight: bold; display: inline-block; }
-    #dice.rolling { animation: shake .1s infinite; }
-    @keyframes shake {
-      0% { transform: translate(0,0); } 25% { transform: translate(-3px,2px); }
-      50% { transform: translate(3px,-2px); } 75% { transform: translate(-2px,-3px); }
-      100% { transform: translate(2px,3px); }
-    }
-    .players { display: flex; gap: 12px; flex-wrap: wrap; }
-    .player {
-      flex: 1; min-width: 240px; background: white; border-radius: 10px; padding: 12px;
-      border: 2px solid #ddd; transition: all .2s;
-    }
-    .player.active { border-color: #4caf50; box-shadow: 0 0 12px #4caf5077; transform: translateY(-2px); }
-    .player.offline { opacity: .55; }
-    .player h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
-    .badge-offline { font-size: 11px; background: #e74c3c; color: white; padding: 2px 6px; border-radius: 4px; }
-    .money { font-size: 20px; font-weight: bold; color: #e67e22; }
-    .cards { font-size: 13px; margin: 8px 0; line-height: 1.9; }
-    .landmarks { font-size: 13px; line-height: 1.9; }
-    .tag { display: inline-block; padding: 2px 8px; margin: 2px; border-radius: 12px; font-size: 12px; font-weight: bold; }
-    .tag-any { background: #d4edda; color: #155724; }
-    .tag-self { background: #cce5ff; color: #004085; }
-    .tag-other { background: #f8d7da; color: #721c24; }
-    .tag-six { background: #fff3cd; color: #856404; }
-    .tag-landmark { background: #e2d9f3; color: #4a2c7a; }
-    .actions { margin: 16px 0; padding: 12px; background: white; border-radius: 10px; min-height: 58px; }
-    .actions button { padding: 7px 12px; margin: 4px; font-size: 14px; cursor: pointer; }
-    .actions button:disabled { opacity: .4; cursor: not-allowed; }
-    .log { background: #fff; border-radius: 10px; padding: 12px; height: 240px; overflow-y: auto; font-size: 13px; font-family: monospace; line-height: 1.8; }
-    .log .turn-sep { color: #888; border-top: 1px dashed #ccc; margin: 6px 0; padding-top: 4px; font-weight: bold; }
-    #roomInfo { font-size: 14px; color: #888; font-weight: normal; }
-    #connectionStatus { position: fixed; right: 14px; bottom: 14px; padding: 7px 10px; border-radius: 8px; background: #fff3cd; color: #856404; display: none; box-shadow: 0 4px 15px #0002; }
-    @media (max-width: 620px) {
-      .topbar { align-items: flex-start; flex-direction: column; }
-      .seat-list { grid-template-columns: 1fr; }
-      .account-info { width: 100%; justify-content: space-between; }
-    }
-  </style>
-  <link rel="stylesheet" href="style.css?v=20261004-sticky">
+  <link rel="stylesheet" href="style.css?v=20261005-board17">
 </head>
 <body>
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-dice" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.4"/><circle cx="15.5" cy="15.5" r="1.4"/><circle cx="12" cy="12" r="1.4"/></symbol>
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.2"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path d="M3 17l2-9 5 4 4-7 4 7 5-4 2 9z"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><circle cx="9" cy="14" r="1.2"/><circle cx="15" cy="14" r="1.2"/><path d="M12 4v4M8.5 8V6.5a3.5 3.5 0 1 1 7 0V8"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 21v-4h6v4M8 7h2M14 7h2M8 11h2M14 11h2"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><path d="M16 8.5a3 3 0 0 1 0 6M17.5 20c0-2 .8-3.4 2-4.2"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 5h12l-2 4 2 4H5"/></symbol>
+  </svg>
+
   <section id="auth" class="screen active">
-    <div class="brand"><h1>🏘️ 梦想小镇</h1><p>登录后从大厅选择房间</p></div>
+    <div class="brand"><h1>梦想小镇</h1><p>登录后从大厅选择房间</p></div>
     <div class="panel auth-card">
       <div class="tabs">
         <button class="tab active" data-tab="login">账号登录</button>
@@ -165,37 +60,51 @@
   <section id="lobby" class="screen">
     <div class="topbar">
       <div><h2>联机大厅</h2><span class="helper">选择一个等待中的房间加入</span></div>
-      <div class="account-info"><span id="profileName"></span><button id="logoutButton" class="secondary">退出登录</button></div>
+      <div class="account-info"><span id="profileName"></span><button id="logoutButton" class="secondary"><svg class="icon"><use href="#i-logout"/></svg>退出登录</button></div>
     </div>
-    <div class="lobby-heading"><h3>房间列表</h3><label><input id="createDlc" type="checkbox"> 新房间启用海滨假日 DLC</label><button id="createRoomButton" class="primary">＋ 创建房间</button></div>
+    <div class="lobby-heading">
+      <h3>房间列表</h3>
+      <div class="lobby-actions">
+        <label class="switch"><input id="createDlc" type="checkbox"><span>启用海滨假日 DLC</span></label>
+        <button id="createRoomButton" class="primary"><svg class="icon"><use href="#i-plus"/></svg>创建房间</button>
+      </div>
+    </div>
     <div id="rooms" class="rooms"></div>
   </section>
 
   <section id="waiting" class="screen">
     <div class="panel waiting-card">
-      <div class="waiting-dots">● ● ●</div>
-      <h2>房间 <span id="waitingRoomId"></span></h2>
+      <div class="waiting-head">
+        <div>
+          <p class="eyebrow">房间</p>
+          <h2 id="waitingRoomId">1</h2>
+        </div>
+        <span class="waiting-dots" aria-hidden="true">•••</span>
+      </div>
       <p id="waitingText" class="helper"></p>
-      <label class="dlc-setting"><input id="roomDlc" type="checkbox"> 启用海滨假日 DLC</label><p id="dlcSettingHint" class="helper"></p>
+      <label class="switch room-dlc"><input id="roomDlc" type="checkbox"><span>启用海滨假日 DLC</span></label>
+      <p id="dlcSettingHint" class="helper"></p>
       <div id="waitingPlayers" class="seat-list"></div>
       <div class="spectator-area" id="spectatorArea" hidden>
-        <div class="spectator-head">👁 观战席</div>
+        <div class="spectator-head"><svg class="icon"><use href="#i-eye"/></svg>观战席</div>
         <div id="waitingSpectators" class="spectator-list"></div>
       </div>
       <div id="botControls" class="bot-controls" hidden>
-        <label class="bot-difficulty">🤖 人机难度
+        <label class="bot-difficulty"><svg class="icon"><use href="#i-bot"/></svg>人机难度
           <select id="botDifficulty">
             <option value="easy">简单 · 有钱就购买</option>
             <option value="normal">普通 · 计算期望收益</option>
             <option value="hard">困难 · 针对玩家策略</option>
           </select>
         </label>
-        <button id="addBotButton" class="secondary" type="button">＋ 添加人机</button>
-        <button id="startGameButton" class="primary" type="button">▶ 开始游戏</button>
+        <div class="bot-buttons">
+          <button id="addBotButton" class="secondary" type="button"><svg class="icon"><use href="#i-plus"/></svg>添加人机</button>
+          <button id="startGameButton" class="primary" type="button"><svg class="icon"><use href="#i-play"/></svg>开始游戏</button>
+        </div>
         <p id="botHint" class="helper"></p>
       </div>
       <section class="chat" id="waitingChat">
-        <div class="chat-head">💬 房间聊天</div>
+        <div class="chat-head"><svg class="icon"><use href="#i-chat"/></svg>房间聊天</div>
         <div class="chat-messages" id="waitingChatMessages"></div>
         <p id="waitingChatError" class="chat-error"></p>
         <form id="waitingChatForm" class="chat-form">
@@ -203,44 +112,70 @@
           <button class="primary" type="submit">发送</button>
         </form>
       </section>
-      <button id="leaveRoomButton" class="danger-btn">退出房间，返回大厅</button>
+      <button id="leaveRoomButton" class="danger-btn"><svg class="icon"><use href="#i-logout"/></svg>退出房间，返回大厅</button>
     </div>
   </section>
 
   <section id="game" class="screen">
-    <div class="topbar">
-      <h2>梦想小镇 <span id="roomInfo"></span></h2>
-      <div class="account-info"><span id="gameProfile" class="helper"></span><button id="leaveGameButton" class="danger-btn">退出本局</button></div>
-    </div>
-    <div class="game-layout">
-      <div class="game-main">
+    <div class="board" id="board">
+      <div class="board-top" id="boardTop">
+        <div class="board-hud">
+          <span class="board-brand">梦想小镇</span>
+          <span id="roomInfo"></span>
+          <span id="gameProfile" class="helper"></span>
+          <button id="leaveGameButton" class="danger-btn"><svg class="icon"><use href="#i-logout"/></svg>退出本局</button>
+        </div>
         <div class="turn-banner" id="turnBanner"></div>
         <div id="dlcPanel" class="dlc-panel" hidden></div>
-        <div class="dice-area"><span id="dice"></span></div>
-        <div class="players" id="players"></div>
-        <div class="actions" id="actions"></div>
+      </div>
+
+      <div class="board-seat seat-0" id="seat0"></div>
+      <div class="board-seat seat-1" id="seat1"></div>
+      <div class="board-seat seat-2" id="seat2"></div>
+      <div class="board-seat seat-3" id="seat3"></div>
+
+      <div class="board-left" id="boardLeft">
+        <div class="side-head"><svg class="icon"><use href="#i-flag"/></svg>对局记录<button id="logToggle" type="button" aria-expanded="true">收起</button></div>
         <div class="log" id="log"></div>
       </div>
-      <section class="chat" id="chat">
-        <div class="chat-head">💬 房间聊天<button id="chatToggle" type="button" aria-expanded="true">收起</button><span id="chatUnread" class="chat-unread" hidden></span></div>
-        <div class="chat-messages" id="chatMessages"></div>
-        <p id="chatError" class="chat-error"></p>
-        <form id="chatForm" class="chat-form">
-          <input id="chatInput" type="text" maxlength="300" placeholder="和房间里的玩家聊聊天…" autocomplete="off">
-          <button class="primary" type="submit">发送</button>
-        </form>
-      </section>
+
+      <div class="board-market" id="market"></div>
+
+      <div class="board-right" id="boardRight">
+        <section class="chat" id="chat">
+          <div class="chat-head"><svg class="icon"><use href="#i-chat"/></svg>房间聊天<button id="chatToggle" type="button" aria-expanded="true">收起</button><span id="chatUnread" class="chat-unread" hidden></span></div>
+          <div class="chat-messages" id="chatMessages"></div>
+          <p id="chatError" class="chat-error"></p>
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" type="text" maxlength="300" placeholder="聊天…" autocomplete="off">
+            <button class="primary" type="submit">发送</button>
+          </form>
+        </section>
+      </div>
+
+      <div class="board-bottom" id="boardBottom">
+        <div class="actions" id="actions" hidden></div>
+        <div class="dice-area">
+          <div class="dice-tray" id="diceTray" aria-live="polite">
+            <div class="dice-pair" id="dicePair"></div>
+            <div class="dice-result" id="diceResult">等待掷骰</div>
+            <div class="dice-roll" id="diceRoll"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
   <div id="cardModal" class="modal-layer" aria-hidden="true">
     <div class="modal-dialog card-dialog" role="dialog" aria-modal="true" aria-labelledby="cardModalTitle">
-      <button id="cardModalClose" class="modal-close" type="button" aria-label="关闭">×</button>
+      <button id="cardModalClose" class="modal-close" type="button" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
       <div class="detail-card">
-        <img id="cardModalArt" alt="">
+        <picture>
+          <source id="cardModalArtWebp" type="image/webp">
+          <img id="cardModalArt" alt="">
+        </picture>
         <span id="cardModalPoints" class="detail-points"></span>
         <span id="cardModalCost" class="detail-cost"></span>
-        <div class="detail-shade"></div>
         <h3 id="cardModalTitle"></h3>
       </div>
       <p id="cardModalDescription" class="card-description"></p>
@@ -255,7 +190,7 @@
 
   <div id="gameOverModal" class="modal-layer" aria-hidden="true">
     <div class="modal-dialog game-over-dialog" role="dialog" aria-modal="true" aria-labelledby="gameOverTitle">
-      <div class="trophy">🏆</div>
+      <div class="trophy"><svg class="icon icon-lg"><use href="#i-trophy"/></svg></div>
       <h2 id="gameOverTitle">游戏结束</h2>
       <p id="gameOverText"></p>
       <div class="modal-actions">
@@ -266,8 +201,9 @@
   </div>
 
   <dialog id="playerDialog" class="profile-dialog" aria-labelledby="playerTitle"><h3 id="playerTitle"></h3><div id="playerDetails"></div><form method="dialog"><button class="primary">关闭</button></form></dialog>
+  <div id="cardTip" class="card-tip" hidden></div>
   <div id="connectionStatus">连接已断开，正在重连…</div>
-  <script src="/dlc1/catalog.js?v=20261003-dlc1"></script>
-  <script src="client.js?v=20261004-spectate"></script>
+  <script src="/dlc1/catalog.js?v=20261005-board17"></script>
+  <script src="client.js?v=20261005-board17"></script>
 </body>
 </html>

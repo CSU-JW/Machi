@@ -43,6 +43,38 @@ function triggerIncome(card, owner, game) {
   }
 }
 
+// 与引擎一致的每张卡单次收益：依赖为 0 时就是 0，不做下限保护。
+function engineIncome(card, owner, game) {
+  if (card.dlc) return D.income(card, owner, game);
+  const bonus = owner.landmarks && owner.landmarks.mallC
+    && ['bakery', 'convenience', 'cafe', 'teaHouse', 'dairy', 'orchard', 'craft', 'farm'].includes(card.id) ? 1 : 0;
+  switch (card.effect.type) {
+    case 'gain': return card.effect.amount + bonus;
+    case 'take': return card.effect.amount + bonus;
+    case 'takeAll':
+    case 'takeOne': return card.effect.amount;
+    case 'swap': return 1;
+    case 'perCard': return (card.effect.amount + bonus) * countOf(owner, card.effect.dep);
+    case 'perCardMulti': return (card.effect.amount + bonus) * card.effect.deps.reduce((s, d) => s + countOf(owner, d), 0);
+    default: return 1;
+  }
+}
+
+// 与引擎一致的单卡每轮期望：双骰按 max(pt/6,1) 放大后向上取整。
+function expectedTriggerGain(game, owner, cardId, roller) {
+  const card = CARDS[cardId];
+  if (!card) return 0;
+  const perCopy = engineIncome(card, owner, game) * (countOf(owner, cardId) || 1);
+  const profile = profileOf(roller);
+  const twoDice = Boolean(roller.landmarks && roller.landmarks.train);
+  let total = 0;
+  for (const point of card.points) {
+    const multiplier = twoDice ? Math.max(point / 6, 1) : 1;
+    total += profile(point) * Math.ceil(perCopy * multiplier);
+  }
+  return total;
+}
+
 // 完整一轮（每名玩家各掷一次）内该卡给 owner 带来的期望收益。
 function roundEv(game, owner, cardId) {
   const card = CARDS[cardId];
@@ -53,16 +85,15 @@ function roundEv(game, owner, cardId) {
     if (cardId === 'mall') return 0.3;
     return 0;
   }
-  const income = triggerIncome(card, owner, game);
-  let hits = 0;
+  let total = 0;
   if (card.trigger === 'self') {
-    hits = weightedHits(cardId, profileOf(owner));
+    total += expectedTriggerGain(game, owner, cardId, owner);
   } else if (card.trigger === 'any') {
-    for (const pl of game.players) hits += weightedHits(cardId, profileOf(pl));
+    for (const pl of game.players) total += expectedTriggerGain(game, owner, cardId, pl);
   } else if (card.trigger === 'other') {
-    for (const pl of game.players) if (pl.id !== owner.id) hits += weightedHits(cardId, profileOf(pl));
+    for (const pl of game.players) if (pl.id !== owner.id) total += expectedTriggerGain(game, owner, cardId, pl);
   }
-  return income * hits;
+  return total;
 }
 
 // 对局领跑者：已建成地标最多者领先，其次比资金。
@@ -411,6 +442,9 @@ function chooseTask(game, player, difficulty) {
 module.exports = {
   DIFFICULTIES,
   BOT_LABELS,
+  avgRollValue,
+  plannedRollValue,
+  roundEv,
   decideRollCount,
   decideChoice,
   decideBuy,

@@ -176,7 +176,7 @@ function connect() {
         return;
       }
       showScreen('game');
-      document.getElementById('roomInfo').textContent = roomId==='test'?'（单人测试）':(myId === null ? `（房间 ${roomId} · 👁 观战中）` : `（房间 ${roomId}，${myId + 1} 号玩家）`);
+      document.getElementById('roomInfo').textContent = roomId==='test'?'（单人测试）':(myId === null ? `（房间 ${roomId} · 观战中）` : `（房间 ${roomId}，${myId + 1} 号玩家）`);
       document.getElementById('leaveGameButton').textContent = myId === null ? '返回房间' : '退出本局';
       render();
       if (game.gameOver) showGameOver();
@@ -239,7 +239,7 @@ function renderLobby(rooms) {
     const title = document.createElement('div');
     title.className = 'room-title';
     const heading = document.createElement('h3');
-    heading.textContent = room.testRoom ? '🧪 单人测试房间' : `房间 ${room.id}`;
+    heading.textContent = room.testRoom ? '单人测试房间' : `房间 ${room.id}`;
     const status = document.createElement('span');
     status.className = `status${room.status === 'playing' ? ' playing' : ''}`;
     status.textContent = room.status === 'playing' ? '游戏中' : '等待中';
@@ -248,7 +248,7 @@ function renderLobby(rooms) {
     const count = document.createElement('div');
     count.className = 'room-count';
     const spectatorText = room.spectatorCount ? ` · ${room.spectatorCount} 人观战` : '';
-    count.textContent = `${room.playerCount} / ${room.capacity} 位玩家${spectatorText} · ${room.dlcEnabled ? '🌊 海滨假日 DLC' : '原版'}`;
+    count.textContent = `${room.playerCount} / ${room.capacity} 位玩家${spectatorText} · ${room.dlcEnabled ? '海滨假日 DLC' : '原版'}`;
     const players = document.createElement('div');
     players.className = 'room-players';
     players.textContent = room.players.length ? room.players.join('、') : '暂无玩家，等你加入';
@@ -256,7 +256,7 @@ function renderLobby(rooms) {
     button.className = 'primary';
     const isPlaying = room.status === 'playing';
     const isFull = room.playerCount >= room.capacity;
-    button.textContent = isPlaying ? '👁 观战' : isFull ? '👁 加入观战' : '加入房间';
+    button.append(icon(isPlaying || isFull ? 'eye' : 'plus'), document.createTextNode(isPlaying ? '观战' : isFull ? '加入观战' : '加入房间'));
     button.addEventListener('click', () => joinRoom(room.id));
     card.append(title, count, players, button);
     container.appendChild(card);
@@ -299,12 +299,12 @@ function renderWaiting(msg) {
     if (player) {
       if (player.bot) {
         seat.className = 'seat bot';
-        seat.textContent = `🤖 ${index + 1} 号位 · ${player.name}`;
+        seat.textContent = `${index + 1} 号位 · ${player.name}`;
         if (isHost && !gameRunning) {
           const remove = document.createElement('button');
           remove.type = 'button';
           remove.className = 'seat-remove';
-          remove.textContent = '✕ 移除';
+          remove.textContent = '移除';
           remove.addEventListener('click', () => send({ type: 'removeBot', playerId: player.id }));
           seat.appendChild(remove);
         }
@@ -315,7 +315,7 @@ function renderWaiting(msg) {
           const toggle = document.createElement('button');
           toggle.type = 'button';
           toggle.className = 'seat-toggle';
-          toggle.textContent = '🔁 切到观战席';
+          toggle.textContent = '切到观战席';
           toggle.addEventListener('click', () => send({ type: 'toggleSeat' }));
           seat.appendChild(toggle);
         }
@@ -339,31 +339,31 @@ function renderWaiting(msg) {
     if (spec.seatKey && spec.seatKey === mySeatKey) return; // 自己的席位由下方“你（观战席）”行展示，避免重复
     const row = document.createElement('div');
     row.className = 'spectator-row';
-    row.textContent = `👁 ${spec.name}${spec.connected === false ? ' · 离线' : ''}`;
+    row.textContent = `${spec.name}${spec.connected === false ? ' · 离线' : ''}`;
     spectatorList.appendChild(row);
   });
   if (amSpectator) {
     const row = document.createElement('div');
     row.className = 'spectator-row me';
     const label = document.createElement('span');
-    label.textContent = `👁 你（观战席）`;
+    label.textContent = '你（观战席）';
     row.appendChild(label);
     if (!gameRunning) {
       const toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'seat-toggle';
-      toggle.textContent = '🔁 切到参赛席';
+      toggle.textContent = '切到参赛席';
       toggle.addEventListener('click', () => send({ type: 'toggleSeat' }));
       row.appendChild(toggle);
     } else {
       const watch = document.createElement('button');
       watch.type = 'button';
       watch.className = 'seat-toggle primary-toggle';
-      watch.textContent = '👁 进入观战';
+      watch.append(icon('eye'), document.createTextNode('进入观战'));
       watch.addEventListener('click', () => {
         spectating = true;
         showScreen('game');
-        document.getElementById('roomInfo').textContent = `（房间 ${roomId} · 👁 观战中）`;
+        document.getElementById('roomInfo').textContent = `（房间 ${roomId} · 观战中）`;
         document.getElementById('leaveGameButton').textContent = '返回房间';
         render();
         if (game && game.gameOver) showGameOver();
@@ -526,7 +526,7 @@ const LANDMARK_INFO={train:'每回合可选择投掷1个或2个骰子。',radio:
 for(const id of Object.keys(LANDMARK_NAMES)){
   CARD_NAMES[id]=LANDMARK_NAMES[id];CARD_COSTS[id]=LANDMARK_COSTS[id];CARD_TYPE[id]='landmark';CARD_POINTS[id]=[];CARD_DESCRIPTIONS[id]=LANDMARK_INFO[id];CARD_IMAGES[id]=`/assets/landmarks/${id}.png`;
 }
-function playerName(p){return `${p.bot?'🤖':''}${p.name} [${p.dlc?(p.dlc.roleChosen?DLC1.roles[p.dlc.role].name:'待选角色'):'市民'}]`;}
+function playerName(p){return `${p.name} [${p.dlc?(p.dlc.roleChosen?DLC1.roles[p.dlc.role].name:'待选角色'):'市民'}]`;}
 function avatarPicker(selected){
   const box=document.createElement('div');box.className='avatar-picker';
   for(const [id,a] of Object.entries(AVATARS)){const b=addAction(box,`${a.icon} ${a.name}`,{type:'setAvatar',avatar:id});b.classList.toggle('selected',id===selected);b.setAttribute('aria-pressed',String(id===selected));}
@@ -539,9 +539,9 @@ function openPlayer(p){
   if(p.id===myId){addTip(body,'更换头像');body.append(avatarPicker(p.avatar));}
   dialog.showModal();
 }
-function landmarkTile(id,p){
+function landmarkTile(id,p,options={}){
   const built=p.landmarks[id];
-  const tile=createCardTile(id,{status:built?'已建成':'未建成'});
+  const tile=createCardTile(id,{status:built?'已建成':'未建成',glow:options.glow});
   tile.classList.add('landmark-tile');tile.classList.toggle('unbuilt',!built);
   tile.querySelector('.card-points').textContent=built?'✓ 已建成':'未建成';
   tile.onclick=()=>{
@@ -557,17 +557,54 @@ for(const card of DLC1.buildings){
   CARD_TYPE[card.id]=({green:'self',blue:'any',red:'other',purple:'six'})[card.color];
 }
 function cardImage(id){return CARD_IMAGES[id].startsWith('/')?CARD_IMAGES[id]:`assets/cards/${CARD_IMAGES[id]}`;}
+function cardBase(id){return cardImage(id).replace(/\.[^.]+$/, '');}
+function cardThumb(id,size=256){return `${cardBase(id)}-${size}.webp`;}
+function cardFallback(id){return `${cardBase(id)}-512.jpg`;}
+function icon(name,className='icon'){
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('class',className);
+  const use=document.createElementNS('http://www.w3.org/2000/svg','use');
+  use.setAttribute('href',`#i-${name}`);
+  svg.appendChild(use);
+  return svg;
+}
+function placeCardTip(x,y){
+  const tip=document.getElementById('cardTip');
+  if(!tip||tip.hidden)return;
+  const pad=12;
+  const rect=tip.getBoundingClientRect();
+  let left=x+14;
+  let top=y+16;
+  if(left+rect.width>window.innerWidth-pad)left=x-rect.width-14;
+  if(top+rect.height>window.innerHeight-pad)top=y-rect.height-16;
+  tip.style.left=`${Math.max(pad,left)}px`;
+  tip.style.top=`${Math.max(pad,top)}px`;
+}
+function showCardTip(text,x,y){
+  const tip=document.getElementById('cardTip');
+  if(!tip||!text)return;
+  tip.textContent=text;
+  tip.hidden=false;
+  placeCardTip(x,y);
+}
+function hideCardTip(){
+  const tip=document.getElementById('cardTip');
+  if(tip)tip.hidden=true;
+}
+function bindCardTip(button,cardId){
+  const text=CARD_DESCRIPTIONS[cardId]||'';
+  if(!text)return;
+  button.addEventListener('mouseenter',event=>showCardTip(text,event.clientX,event.clientY));
+  button.addEventListener('mousemove',event=>placeCardTip(event.clientX,event.clientY));
+  button.addEventListener('mouseleave',hideCardTip);
+  button.addEventListener('focus',()=>{const rect=button.getBoundingClientRect();showCardTip(text,rect.right,rect.top);});
+  button.addEventListener('blur',hideCardTip);
+}
 function priceOptions(kind,id,cost){return game?.shopQuotes?.[kind]?.[id] || [{source:'none',label:'原价',cost,rebate:0}];}
 function fillDiscount(select,quotes){
   select.replaceChildren();
   const sorted=[...quotes].sort((a,b)=>(a.cost-a.rebate)-(b.cost-b.rebate)||a.cost-b.cost);
   for(const q of sorted){const o=document.createElement('option');o.value=q.source;o.textContent=`${q.label} · 支付${q.cost}元`;select.append(o);}
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>'"]/g, character => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
-  })[character]);
 }
 
 function findMe() {
@@ -594,10 +631,12 @@ function openCardModal(cardId, options = {}) {
   const modal = document.getElementById('cardModal');
   modal.querySelector('.detail-card').className = `detail-card card-${CARD_TYPE[cardId] || 'self'}`;
   modal.querySelector('.detail-card').classList.toggle('unbuilt',Boolean(options.unbuilt));
-  document.getElementById('cardModalArt').src = cardImage(cardId);
-  document.getElementById('cardModalArt').alt = `${CARD_NAMES[cardId]}卡通图`;
-  document.getElementById('cardModalPoints').textContent = LANDMARK_NAMES[cardId]?'🏛️ 地标':`🎲 ${cardPointLabel(cardId)}`;
-  document.getElementById('cardModalCost').textContent = `🪙 ${CARD_COSTS[cardId]}`;
+  const artWebp = document.getElementById('cardModalArtWebp');
+  if (artWebp) artWebp.srcset = cardThumb(cardId, 512);
+  document.getElementById('cardModalArt').src = cardFallback(cardId);
+  document.getElementById('cardModalArt').alt = `${CARD_NAMES[cardId]}插画`;
+  document.getElementById('cardModalPoints').textContent = LANDMARK_NAMES[cardId]?'地标':cardPointLabel(cardId);
+  document.getElementById('cardModalCost').textContent = String(CARD_COSTS[cardId]);
   document.getElementById('cardModalTitle').textContent = CARD_NAMES[cardId];
   document.getElementById('cardModalDescription').textContent = CARD_DESCRIPTIONS[cardId];
 
@@ -612,12 +651,12 @@ function openCardModal(cardId, options = {}) {
   confirmButton.disabled = Boolean(options.disabledReason) || !cardModalPayload;
   confirmButton.textContent = options.confirmLabel || '确认购买';
   const discountLabel=document.getElementById('discountLabel'), select=document.getElementById('cardDiscount');
-  discountLabel.hidden=!options.showConfirm;
   if(options.showConfirm){
     const kind=LANDMARK_NAMES[cardId]?'build':'buy';
-    const quotes=priceOptions(kind,cardId,CARD_COSTS[cardId]);fillDiscount(select,quotes);
-    const update=()=>{
-      const q=quotes.find(q=>q.source===select.value);
+    const quotes=priceOptions(kind,cardId,CARD_COSTS[cardId]);
+    const hasChoice=quotes.length>1;
+    discountLabel.hidden=!hasChoice;
+    const applyQuote=q=>{
       const reason=options.disabledReason || (findMe().money<q.cost?'资金不足':'');
       confirmButton.disabled=Boolean(reason);
       confirmButton.textContent=`${kind==='build'?'确认建设':'确认购买'} · ${q.cost} 元`;
@@ -625,7 +664,16 @@ function openCardModal(cardId, options = {}) {
       status.textContent=[category, options.status,reason].filter(Boolean).join(' · ');
       status.classList.toggle('error',Boolean(reason));
     };
-    select.onchange=update;update();
+    if(hasChoice){
+      fillDiscount(select,quotes);
+      const update=()=>applyQuote(quotes.find(q=>q.source===select.value)||quotes[0]);
+      select.onchange=update;update();
+    }else{
+      select.replaceChildren();
+      applyQuote(quotes[0]);
+    }
+  }else{
+    discountLabel.hidden=true;
   }
   modal.classList.add('active');
   modal.setAttribute('aria-hidden', 'false');
@@ -636,25 +684,34 @@ function createCardTile(cardId, options = {}) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = `game-card card-${CARD_TYPE[cardId] || 'self'}${options.disabledReason ? ' unavailable' : ''}`;
+  if (options.glow) button.classList.add('glow');
   button.setAttribute('aria-label', `查看${CARD_NAMES[cardId]}详情`);
+  bindCardTip(button, cardId);
 
+  const picture = document.createElement('picture');
+  const source = document.createElement('source');
+  source.type = 'image/webp';
+  source.srcset = `${cardThumb(cardId, 256)} 256w, ${cardThumb(cardId, 512)} 512w`;
+  source.sizes = '(max-width: 680px) 96px, 132px';
   const image = document.createElement('img');
-  image.src = cardImage(cardId);
-  image.alt = `${CARD_NAMES[cardId]}卡通图`;
+  image.src = cardFallback(cardId);
+  image.alt = `${CARD_NAMES[cardId]}插画`;
   image.loading = options.eager ? 'eager' : 'lazy';
+  image.decoding = 'async';
+  image.width = 512;
+  image.height = 512;
+  picture.append(source, image);
 
-  const shade = document.createElement('span');
-  shade.className = 'card-shade';
   const points = document.createElement('span');
   points.className = 'card-points';
-  points.textContent = `🎲 ${cardPointLabel(cardId)}`;
+  points.textContent = cardPointLabel(cardId);
   const name = document.createElement('span');
   name.className = 'card-name';
   name.textContent = CARD_NAMES[cardId];
   const price = document.createElement('span');
   price.className = 'card-price';
-  price.textContent = `🪙 ${CARD_COSTS[cardId]}`;
-  button.append(image, shade, points, name, price);
+  price.textContent = String(CARD_COSTS[cardId]);
+  button.append(picture, points, name, price);
 
   if (options.remaining !== undefined) {
     const stock = document.createElement('span');
@@ -682,13 +739,26 @@ function createOwnedCard(cardId, count) {
   button.type = 'button';
   button.className = `owned-card card-${CARD_TYPE[cardId] || 'self'}`;
   button.setAttribute('aria-label', `查看${CARD_NAMES[cardId]}详情，拥有 ${count} 张`);
+  bindCardTip(button, cardId);
+  const picture = document.createElement('picture');
+  const source = document.createElement('source');
+  source.type = 'image/webp';
+  source.srcset = cardThumb(cardId, 256);
   const image = document.createElement('img');
-  image.src = cardImage(cardId);
+  image.src = cardFallback(cardId);
   image.alt = '';
   image.loading = 'lazy';
+  image.decoding = 'async';
+  image.width = 256;
+  image.height = 256;
+  picture.append(source, image);
   const badge = document.createElement('span');
+  badge.className = 'owned-count';
   badge.textContent = `×${count}`;
-  button.append(image, badge);
+  const name = document.createElement('span');
+  name.className = 'owned-name';
+  name.textContent = CARD_NAMES[cardId];
+  button.append(picture, badge, name);
   button.addEventListener('click', () => openCardModal(cardId, {
     status: `拥有 ${count} 张`,
     showConfirm: false,
@@ -720,53 +790,226 @@ function showGameOver() {
   modal.setAttribute('aria-hidden', 'false');
 }
 
-let lastDiceKey = '';
-function animateDice(realSum, realValues) {
-  const element = document.getElementById('dice');
-  const key = `${realValues.join('+')}|${realSum}`;
-  if (key === lastDiceKey) return;
-  lastDiceKey = key;
-  element.classList.add('rolling');
-  let count = 0;
-  const timer = setInterval(() => {
-    element.textContent = `🎲 ${1 + Math.floor(Math.random() * 12)}`;
-    count += 1;
-    if (count >= 8) {
-      clearInterval(timer);
-      element.classList.remove('rolling');
-      element.textContent = `🎲 ${realSum} (${realValues.join(' + ')})`;
+const FACE_SETTLE = {
+  1: { x: 0, y: 0 },
+  2: { x: 0, y: -90 },
+  3: { x: -90, y: 0 },
+  4: { x: 90, y: 0 },
+  5: { x: 0, y: 90 },
+  6: { x: 0, y: 180 },
+};
+const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+let renderedDiceKey = null;
+let diceReady = false;
+
+function createDie(value) {
+  const wrap = document.createElement('div');
+  wrap.className = 'die-wrap';
+  const die = document.createElement('div');
+  die.className = 'die';
+  for (let face = 1; face <= 6; face += 1) {
+    const faceElement = document.createElement('div');
+    faceElement.className = `face f${face}`;
+    faceElement.dataset.v = String(face);
+    for (let pip = 0; pip < 9; pip += 1) {
+      const dot = document.createElement('span');
+      dot.className = 'pip';
+      faceElement.appendChild(dot);
     }
-  }, 60);
+    die.appendChild(faceElement);
+  }
+  const settle = FACE_SETTLE[value] || FACE_SETTLE[1];
+  die.style.transition = 'none';
+  die.style.transform = `rotateX(${settle.x}deg) rotateY(${settle.y}deg)`;
+  wrap.appendChild(die);
+  return wrap;
+}
+
+function rollDie(wrap, value, delay) {
+  const die = wrap.querySelector('.die');
+  const settle = FACE_SETTLE[value] || FACE_SETTLE[1];
+  if (reduceMotion) return;
+  const xTurns = 2 + Math.floor(Math.random() * 2);
+  const yTurns = 2 + Math.floor(Math.random() * 2);
+  const finalX = settle.x + (Math.random() < 0.5 ? -1 : 1) * xTurns * 360;
+  const finalY = settle.y + (Math.random() < 0.5 ? -1 : 1) * yTurns * 360;
+  die.style.transition = 'none';
+  die.style.transform = 'rotateX(0deg) rotateY(0deg)';
+  void die.offsetWidth;
+  die.style.transition = '';
+  die.style.transitionDelay = `${delay}ms`;
+  wrap.style.animationDelay = `${delay}ms`;
+  wrap.classList.remove('bounce');
+  void wrap.offsetWidth;
+  wrap.classList.add('bounce');
+  window.requestAnimationFrame(() => {
+    die.style.transform = `rotateX(${finalX}deg) rotateY(${finalY}deg)`;
+  });
+}
+
+function rollButton(label, count) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'primary';
+  button.append(icon('dice'), document.createTextNode(label));
+  button.addEventListener('click', () => send({ type: 'roll', count }));
+  return button;
+}
+
+function renderDiceTray(me, isMyTurn) {
+  const pair = document.getElementById('dicePair');
+  const result = document.getElementById('diceResult');
+  const roll = document.getElementById('diceRoll');
+  if (!pair || !result || !roll) return;
+  const dice = game?.dice;
+  if (dice) {
+    const key = `${dice.count}:${dice.values.join('+')}`;
+    if (key !== renderedDiceKey) {
+      const animate = diceReady;
+      renderedDiceKey = key;
+      pair.replaceChildren();
+      dice.values.forEach((value, index) => {
+        const wrap = createDie(value);
+        pair.appendChild(wrap);
+        if (animate) rollDie(wrap, value, index * 70);
+      });
+    }
+    diceReady = true;
+    result.textContent = dice.count === 1 ? `${dice.sum} 点` : `${dice.sum} 点（${dice.values.join(' + ')}）`;
+    roll.replaceChildren();
+    return;
+  }
+  diceReady = true;
+  renderedDiceKey = null;
+  pair.replaceChildren();
+  const currentPlayer = game?.players?.[game.current];
+  const idleCount = currentPlayer?.landmarks?.train ? 2 : 1;
+  for (let index = 0; index < idleCount; index += 1) {
+    const wrap = createDie(1);
+    wrap.classList.add('idle');
+    pair.appendChild(wrap);
+  }
+  roll.replaceChildren();
+  if (isMyTurn && me) {
+    result.textContent = me.landmarks.train ? '选择投掷数量' : '投掷 1 个骰子';
+    roll.appendChild(rollButton('掷 1 个骰子', 1));
+    if (me.landmarks.train) roll.appendChild(rollButton('掷 2 个骰子', 2));
+  } else {
+    result.textContent = me ? '等待其他玩家掷骰' : '观战中';
+  }
+}
+
+function renderMarket(me, isMyTurn) {
+  const market = document.getElementById('market');
+  if (!market) return;
+  market.replaceChildren();
+  if (!game.cardPool) return;
+  const panel = document.createElement('div');
+  panel.className = 'market-panel';
+  const head = document.createElement('div');
+  head.className = 'market-head';
+  const title = document.createElement('h3');
+  title.textContent = '公共牌堆';
+  const total = Object.values(game.cardPool).reduce((sum, n) => sum + n, 0);
+  const count = document.createElement('span');
+  count.className = 'helper';
+  count.textContent = `剩余 ${total} 张`;
+  head.append(title, count);
+  const grid = document.createElement('div');
+  grid.className = 'market-grid';
+  const canBuyNow = Boolean(isMyTurn && game.settled && game.dice && !game.boughtThisTurn && !game.pendingChoice);
+  const ids = Object.keys(game.cardPool).sort((a, b) => {
+    const pa = CARD_POINTS[a]?.[0] ?? 99;
+    const pb = CARD_POINTS[b]?.[0] ?? 99;
+    return pa !== pb ? pa - pb : (CARD_COSTS[a] || 0) - (CARD_COSTS[b] || 0);
+  });
+  for (const id of ids) {
+    const remaining = game.cardPool[id] || 0;
+    const owned = me?.cards?.[id] || 0;
+    let disabledReason = '';
+    if (remaining <= 0) disabledReason = '已售罄';
+    else if (SIX_CARDS.includes(id) && owned > 0) disabledReason = '每人限一张';
+    const matching = canBuyNow && (CARD_POINTS[id] || []).includes(game.dice.sum) && !disabledReason;
+    grid.appendChild(createCardTile(id, {
+      remaining,
+      owned,
+      showConfirm: matching,
+      payload: matching ? { type: 'buy', cardId: id } : null,
+      disabledReason,
+      status: matching ? '点数匹配，可直接购买' : '',
+    }));
+  }
+  panel.append(head, grid);
+  market.appendChild(panel);
+  window.requestAnimationFrame(layoutMarket);
+}
+
+// 根据面板可用宽高和卡牌数量，选“卡牌最大且尽量填满 3~4 行”的列数。
+function layoutMarket() {
+  const grid = document.querySelector('.market-grid');
+  if (!grid) return;
+  const count = grid.children.length;
+  if (!count) return;
+  const width = grid.clientWidth;
+  const height = grid.clientHeight;
+  if (width <= 0 || height <= 0) return;
+  const gap = 8;
+  const aspect = 0.74;
+  let best = null;
+  // 优先填满 3~4 行：行数固定，列数 = ceil(count/rows)，卡牌取「按宽度」和「按高度」的较小值。
+  for (const rows of [4, 3, 2, 1]) {
+    if (rows > count) continue;
+    const cols = Math.ceil(count / rows);
+    const widthByCols = (width - gap * (cols - 1)) / cols;
+    const heightByRows = (height - gap * (rows - 1)) / rows;
+    const cardWidth = Math.min(widthByCols, heightByRows * aspect);
+    if (cardWidth < 24) continue;
+    const ragged = count % cols === 0 ? 0 : 1;
+    const score = cardWidth - ragged * 4;
+    if (!best || score > best.score) best = { cols, cardWidth, score };
+  }
+  if (!best) {
+    // 高度放不下时允许滚动，选卡牌最大的列数。
+    for (let cols = 1; cols <= count; cols += 1) {
+      const cardWidth = (width - gap * (cols - 1)) / cols;
+      if (cardWidth < 24) break;
+      if (!best || cardWidth > best.cardWidth) best = { cols, cardWidth, score: cardWidth };
+    }
+  }
+  if (best) {
+    grid.style.gridTemplateColumns = `repeat(${best.cols}, minmax(0, 1fr))`;
+    grid.style.setProperty('--market-card-max', `${Math.round(best.cardWidth)}px`);
+    grid.style.alignContent = 'center';
+  }
 }
 
 function render() {
   if (!game) return;
   const me = findMe();
+  const isMyTurn = Boolean(me && game.current === me.id);
   renderDlcPanel(me);
   const banner = document.getElementById('turnBanner');
   const currentPlayer = game.players[game.current];
   if (game.gameOver) {
     const winner = game.players.find(player => player.id === game.winnerId);
-    banner.textContent = `🏆 ${winner ? playerName(winner) : '玩家'} 获胜 · 游戏结束`;
+    banner.replaceChildren(icon('trophy'), document.createTextNode(` ${winner ? playerName(winner) : '玩家'} 获胜 · 游戏结束`));
     banner.classList.remove('me');
-  } else if (me && game.current === me.id) {
+  } else if (isMyTurn) {
     const extraTurnText = game.extraTurn ? ' · 广播中心已触发，结束后再行动一次' : '';
-    banner.textContent = `⚡ 轮到你了（第 ${game.turnNumber} 回合）${extraTurnText}`;
+    banner.replaceChildren(icon('play'), document.createTextNode(` 轮到你了（第 ${game.turnNumber} 回合）${extraTurnText}`));
     banner.classList.add('me');
   } else {
-    banner.textContent = `⏳ 轮到 ${playerName(currentPlayer)}（第 ${game.turnNumber} 回合）`;
+    banner.replaceChildren(icon('users'), document.createTextNode(` 轮到 ${playerName(currentPlayer)}（第 ${game.turnNumber} 回合）`));
     banner.classList.remove('me');
   }
+  renderDiceTray(me, isMyTurn);
 
-  if (game.dice) animateDice(game.dice.sum, game.dice.values);
-  else {
-    document.getElementById('dice').textContent = '';
-    lastDiceKey = '';
+  const seatElements = [0, 1, 2, 3].map(index => document.getElementById(`seat${index}`));
+  for (const seat of seatElements) {
+    if (!seat) continue;
+    seat.replaceChildren();
+    seat.classList.remove('empty-seat');
   }
-
-  const playersElement = document.getElementById('players');
-  playersElement.replaceChildren();
-  playersElement.classList.toggle('count-4', game.players.length === 4);
   game.players.forEach((player, index) => {
     const playerPanel = document.createElement('div');
     playerPanel.className = `player${index === game.current && !game.gameOver ? ' active' : ''}${player.connected === false ? ' offline' : ''}`;
@@ -788,7 +1031,7 @@ function render() {
     }
     const money = document.createElement('div');
     money.className = 'money';
-    money.textContent = `🪙 ${player.money}`;
+    money.append(icon('coin'), document.createTextNode(String(player.money)));
 
     const ownedCards = document.createElement('div');
     ownedCards.className = 'owned-cards';
@@ -800,53 +1043,34 @@ function render() {
     landmarks.className = 'landmarks';
     Object.keys(LANDMARK_NAMES).forEach(id=>landmarks.append(landmarkTile(id,player)));
     playerPanel.append(heading, money, ownedCards, landmarks);
-    playersElement.appendChild(playerPanel);
+    const seat = seatElements[index];
+    if (seat) seat.appendChild(playerPanel);
   });
-
-  if (game.cardPool) {
-    const shelf = document.createElement('details');
-    shelf.className = 'market-shelf';
-    const summary = document.createElement('summary');
-    summary.textContent = '卡牌图鉴与公共牌堆库存';
-    const grid = document.createElement('div');
-    grid.className = 'market-grid';
-    Object.keys(game.cardPool).forEach(id => grid.appendChild(createCardTile(id, {
-      remaining: game.cardPool[id] || 0,
-      disabledReason: (game.cardPool[id] || 0) <= 0 ? '已售罄' : '',
-    })));
-    shelf.append(summary, grid);
-    playersElement.appendChild(shelf);
+  for (let index = game.players.length; index < 4; index += 1) {
+    const seat = seatElements[index];
+    if (!seat) continue;
+    seat.classList.add('empty-seat');
+    const empty = document.createElement('div');
+    empty.className = 'seat-empty';
+    empty.textContent = '等待玩家';
+    seat.appendChild(empty);
   }
+  renderMarket(me, isMyTurn);
 
   const actions = document.getElementById('actions');
   actions.replaceChildren();
-  const isMyTurn = me && game.current === me.id;
-  if(game.dlc?.selecting){addTip(actions,'请选择角色和任务，倒计时结束后自动选择。');renderLog();return;}
-  if (game.gameOver) {
-    addTip(actions, '本局已经结束，可查看最终城镇或返回大厅。');
-    renderLog();
-    return;
-  }
-  if (isMyTurn && game.pendingChoice) {
+  const showActions = Boolean(isMyTurn && me && !game.gameOver && !game.dlc?.selecting && game.dice);
+  actions.hidden = !showActions;
+  if (!showActions) { renderLog(); return; }
+  if (game.pendingChoice) {
     renderPendingChoice(actions, me);
     renderLog();
     return;
   }
 
-  if (!me) actions.textContent = myId === null && roomId ? '👁 观战中，无法进行游戏操作' : '正在同步身份…';
-  else if (isMyTurn) {
+  if (isMyTurn) {
     if (!game.dice) {
-      const heading = document.createElement('h3');
-      heading.className = 'action-heading';
-      heading.textContent = '轮到你行动';
-      const hint = document.createElement('p');
-      hint.className = 'action-hint';
-      hint.textContent = '先选择本回合要投掷的骰子数量。';
-      const buttons = document.createElement('div');
-      buttons.className = 'dice-buttons';
-      addAction(buttons, '🎲 掷 1 个骰子', { type: 'roll', count: 1 });
-      if (me.landmarks.train) addAction(buttons, '🎲🎲 掷 2 个骰子', { type: 'roll', count: 2 });
-      actions.append(heading, hint, buttons);
+      addTip(actions, me.landmarks.train ? '在骰子托盘选择投掷 1 个或 2 个骰子。' : '在骰子托盘投掷 1 个骰子。');
     } else if (game.settled) {
       if (!game.boughtThisTurn) {
         const heading = document.createElement('h3');
@@ -858,11 +1082,16 @@ function render() {
         const grid = document.createElement('div');
         grid.className = 'purchase-grid';
         const matchingIds = Object.keys(game.cardPool).filter(id => CARD_POINTS[id].includes(game.dice.sum));
+        let buyAffordable = false;
         matchingIds.forEach(id => {
           const remaining = game.cardPool[id] || 0;
           let disabledReason = '';
           if (remaining <= 0) disabledReason = '牌堆已经售罄';
           else if (SIX_CARDS.includes(id) && (me.cards[id] || 0) > 0) disabledReason = '该特殊卡每人只能拥有一张';
+          const quotes = priceOptions('buy', id, CARD_COSTS[id]);
+          const minCost = Math.min(...quotes.map(q => Math.max(0, q.cost - (q.rebate || 0))));
+          const affordable = !disabledReason && me.money >= minCost;
+          if (affordable) buyAffordable = true;
           grid.appendChild(createCardTile(id, {
             remaining,
             owned: me.cards[id] || 0,
@@ -871,24 +1100,42 @@ function render() {
             payload: disabledReason ? null : { type: 'buy', cardId: id },
             confirmLabel: `确认购买 · ${CARD_COSTS[id]} 元`,
             eager: true,
+            glow: affordable,
           }));
         });
+        if (buyAffordable) {
+          const badge = document.createElement('span');
+          badge.className = 'affordable-hint';
+          badge.textContent = '可以购买';
+          heading.appendChild(badge);
+        }
         actions.append(heading, hint, grid);
       } else {
-        addTip(actions, '✅ 本回合已经购买过一张卡牌');
+        addTip(actions, '本回合已经购买过一张卡牌');
       }
 
       const landmarkActions = document.createElement('div');
       landmarkActions.className = 'landmark-actions';
       if (!game.builtThisTurn) {
+        let buildAffordable = false;
         for (const id of Object.keys(LANDMARK_NAMES)) {
           if (!me.landmarks[id]) {
-            landmarkActions.append(landmarkTile(id,me));
+            const quotes = priceOptions('build', id, CARD_COSTS[id]);
+            const minCost = Math.min(...quotes.map(q => Math.max(0, q.cost - (q.rebate || 0))));
+            const affordable = me.money >= minCost;
+            if (affordable) buildAffordable = true;
+            landmarkActions.append(landmarkTile(id, me, { glow: affordable }));
           }
+        }
+        if (buildAffordable) {
+          const badge = document.createElement('span');
+          badge.className = 'affordable-hint';
+          badge.textContent = '可以建设地标';
+          landmarkActions.prepend(badge);
         }
       } else {
         const buildNote = document.createElement('span');
-        buildNote.textContent = '✅ 本回合已经建设过地标';
+        buildNote.textContent = '本回合已经建设过地标';
         landmarkActions.appendChild(buildNote);
       }
       actions.appendChild(landmarkActions);
@@ -901,9 +1148,10 @@ function render() {
   renderLog();
 }
 
-function addAction(container, label, payload) {
+function addAction(container, label, payload, iconName) {
   const button = document.createElement('button');
-  button.textContent = label;
+  if (iconName) button.append(icon(iconName));
+  button.appendChild(document.createTextNode(label));
   if (payload) button.addEventListener('click', () => send(payload));
   container.appendChild(button);
   return button;
@@ -911,8 +1159,8 @@ function addAction(container, label, payload) {
 
 function addTip(container, text) {
   const tip = document.createElement('div');
+  tip.className = 'tip';
   tip.textContent = text;
-  tip.style.cssText = 'width:100%;margin-bottom:8px;font-weight:bold';
   container.appendChild(tip);
 }
 
@@ -995,6 +1243,13 @@ function renderPendingChoice(container, me) {
 function renderLog() {
   const log = document.getElementById('log');
   log.replaceChildren();
+  if (!(game.log || []).length) {
+    const empty = document.createElement('div');
+    empty.className = 'log-empty';
+    empty.textContent = '暂无记录';
+    log.appendChild(empty);
+    return;
+  }
   let lastTurn = null;
   for (const entry of (game.log || []).slice(-80)) {
     const text = typeof entry === 'string' ? entry : entry.text;
@@ -1015,10 +1270,19 @@ function renderLog() {
 
 function renderDlcPanel(me){
   const panel=document.getElementById('dlcPanel');panel.hidden=!game.dlc;panel.replaceChildren();
+  panel.classList.toggle('selecting', Boolean(game.dlc?.selecting));
   if(!game.dlc||!me)return;
   const event=DLC1.events[game.dlc.eventIndex];
-  addTip(panel,`🌊 海滨假日 · 第${game.dlc.round}轮 · ${event.name}`);
+  addTip(panel,`海滨假日 · 第${game.dlc.round}轮 · ${event.name}`);
   const description=document.createElement('p');description.textContent=event.effect;panel.append(description);
+  if(game.dlc.selecting){
+    const countdown=document.createElement('div');
+    countdown.id='dlcCountdown';
+    countdown.className='dlc-countdown';
+    const left=Math.max(0,Math.ceil((game.dlc.taskDeadline-Date.now())/1000));
+    countdown.textContent=`角色与任务选择 · 剩余 ${left} 秒`;
+    panel.append(countdown);
+  }
   if(game.dlc.selecting&&!me.dlc.roleChosen){
     addTip(panel,'角色二选一（允许不同玩家选择同一角色）');
     for(const id of me.dlc.roleOptions){const r=DLC1.roles[id];addAction(panel,`${r.name} · ${r.type}\n${r.effect}`,{type:'chooseRole',role:id});}
@@ -1038,7 +1302,7 @@ function renderDlcPanel(me){
     const row=document.createElement('div');row.className='dlc-player';
     const title=document.createElement('strong');title.textContent=`${playerName(p)}（${role.type}）`;
     const info=document.createElement('p');info.textContent=role.effect;
-    const status=document.createElement('p');status.textContent=`技能已用 ${d.used}/${d.role===0?1:3} 次${[1,4].includes(d.role)&&d.used>0&&d.readyAt>d.ownTurn?` · 冷却中，距可用还差${d.readyAt-d.ownTurn}个自己的回合`:''}；任务：${task?task.name:'选择中'}${d.taskDone?' ✅ 已完成':''}`;
+    const status=document.createElement('p');status.textContent=`技能已用 ${d.used}/${d.role===0?1:3} 次${[1,4].includes(d.role)&&d.used>0&&d.readyAt>d.ownTurn?` · 冷却中，距可用还差${d.readyAt-d.ownTurn}个自己的回合`:''}；任务：${task?task.name:'选择中'}${d.taskDone?' · 已完成':''}`;
     row.append(title,info,status);
     if(task){const t=document.createElement('p');t.textContent=`${task.condition} 奖励：${task.reward}`;row.append(t);}
     if(p.id===me.id){
@@ -1054,7 +1318,7 @@ function renderDlcPanel(me){
 function roleTaskDetails(p){
   const box=document.createElement('div'),d=p.dlc,role=DLC1.roles[d.role],task=DLC1.tasks.find(t=>t.id===d.taskId);
   const skill=document.createElement('p');skill.textContent=d.roleChosen?`${role.name} · ${role.type}：${role.effect}（已用${d.used}/${d.role===0?1:3}次）`:'正在选择角色';
-  const mission=document.createElement('p');mission.textContent=task?`${d.taskDone?'✅ 已完成':'任务'} · ${task.name}：${task.condition} 奖励：${task.reward}`:'正在选择任务';
+  const mission=document.createElement('p');mission.textContent=task?`${d.taskDone?'已完成':'任务'} · ${task.name}：${task.condition} 奖励：${task.reward}`:'正在选择任务';
   box.append(skill,mission);return box;
 }
 
@@ -1083,7 +1347,7 @@ function chatLineElement(entry) {
   if (entry.spectator) {
     const tag = document.createElement('span');
     tag.className = 'chat-spec-tag';
-    tag.textContent = '👁 观战';
+  tag.textContent = '观战';
     meta.appendChild(tag);
   }
   const time = document.createElement('span');
@@ -1151,5 +1415,60 @@ document.getElementById('chatToggle').addEventListener('click', () => {
   }
 });
 
-getDeviceId();
-connect();
+document.getElementById('logToggle')?.addEventListener('click', () => {
+  const panel = document.getElementById('boardLeft');
+  const toggle = document.getElementById('logToggle');
+  if (!panel || !toggle) return;
+  const collapsed = panel.classList.toggle('collapsed');
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  toggle.textContent = collapsed ? '展开' : '收起';
+});
+
+let marketResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(marketResizeTimer);
+  marketResizeTimer = setTimeout(() => window.requestAnimationFrame(layoutMarket), 120);
+});
+
+setInterval(() => {
+  const countdown = document.getElementById('dlcCountdown');
+  if (!countdown || !game?.dlc?.selecting) return;
+  const left = Math.max(0, Math.ceil((game.dlc.taskDeadline - Date.now()) / 1000));
+  countdown.textContent = `角色与任务选择 · 剩余 ${left} 秒`;
+}, 1000);
+
+async function loadCatalog() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2000);
+  try {
+    const response = await fetch('/api/catalog', { signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) return;
+    const catalog = await response.json();
+    for (const [id, card] of Object.entries(catalog.cards || {})) {
+      CARD_NAMES[id] = card.name;
+      CARD_POINTS[id] = card.points;
+      CARD_COSTS[id] = card.cost;
+      if (!card.dlc) {
+        CARD_TYPE[id] = card.trigger === 'any' ? 'any' : card.trigger === 'other' ? 'other' : card.trigger === 'six' ? 'six' : 'self';
+      }
+    }
+    for (const [id, landmark] of Object.entries(catalog.landmarks || {})) {
+      CARD_NAMES[id] = landmark.name;
+      CARD_COSTS[id] = landmark.cost;
+      CARD_TYPE[id] = 'landmark';
+    }
+    if (Array.isArray(catalog.sixCards) && catalog.sixCards.length) {
+      SIX_CARDS.length = 0;
+      SIX_CARDS.push(...catalog.sixCards);
+    }
+  } catch {
+    // 目录接口不可用时继续使用内置默认值。
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+loadCatalog().finally(() => {
+  getDeviceId();
+  connect();
+});

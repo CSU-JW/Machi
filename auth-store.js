@@ -53,7 +53,13 @@ class AuthStore {
       if (Array.isArray(parsed.accounts)) this.data = parsed;
     } catch (error) {
       if (error.code !== 'ENOENT') {
-        console.error(`[auth] 账号数据读取失败，将使用空数据：${error.message}`);
+        const backupPath = `${this.filePath}.corrupt-${Date.now()}`;
+        try {
+          fs.renameSync(this.filePath, backupPath);
+        } catch {
+          // 备份失败时仍然继续用空数据启动，避免整个服务起不来。
+        }
+        console.error(`[auth] 账号数据读取失败，已备份到 ${backupPath}：${error.message}`);
       }
     }
   }

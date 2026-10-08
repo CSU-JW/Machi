@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const { WebSocketServer, WebSocket } = require('ws');
 const E = require('./engine');
 const D = require('./dlc1/runtime');
-const { CARDS, LANDMARKS } = require('./cards');
+const { CARDS, LANDMARKS, SIX_CARDS } = require('./cards');
 const { AuthStore, AuthError, cleanNickname } = require('./auth-store');
 const B = require('./bots');
 
@@ -24,14 +24,19 @@ function createMachiServer(options = {}) {
   const botTurnDelayMs = options.botTurnDelayMs ?? 1100;
   const botJitterMs = options.botJitterMs ?? 600;
   const gameOverResetMs = options.gameOverResetMs ?? 8000;
+  const turnTimeoutMs = options.turnTimeoutMs ?? 60_000;
+  const disconnectedTurnTimeoutMs = options.disconnectedTurnTimeoutMs ?? 12_000;
+  const authWindowMs = options.authWindowMs ?? 60_000;
+  const authMaxAttempts = options.authMaxAttempts ?? 20;
   const rooms = new Map();
   const sessions = new Map();
+  const authAttempts = new Map();
 
   // 房间编号从 1 开始，取最小空闲编号（关闭后的空号会被复用）
   function createRoom(dlcEnabled = false) {
     let id = 1;
     while (rooms.has(String(id))) id += 1;
-    const room = { id: String(id), members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [], botTimer: null, gameOverTimer: null };
+    const room = { id: String(id), members: [], game: null, dlcEnabled: dlcEnabled === true, chatLog: [], botTimer: null, gameOverTimer: null, turnTimer: null };
     rooms.set(room.id, room);
     return room;
   }
@@ -41,8 +46,10 @@ function createMachiServer(options = {}) {
     if (room.taskTimer) clearTimeout(room.taskTimer);
     if (room.botTimer) clearTimeout(room.botTimer);
     if (room.gameOverTimer) clearTimeout(room.gameOverTimer);
+    if (room.turnTimer) clearTimeout(room.turnTimer);
     room.botTimer = null;
     room.gameOverTimer = null;
+    room.turnTimer = null;
     if (room.testRoom) {
       room.members = [];
       room.game = null;
@@ -61,16 +68,18 @@ function createMachiServer(options = {}) {
     if (room.taskTimer) clearTimeout(room.taskTimer);
     if (room.botTimer) clearTimeout(room.botTimer);
     if (room.gameOverTimer) clearTimeout(room.gameOverTimer);
+    if (room.turnTimer) clearTimeout(room.turnTimer);
     room.taskTimer = null;
     room.botTimer = null;
     room.gameOverTimer = null;
+    room.turnTimer = null;
     room.game = null;
     console.log(`[reset] 房间 ${room.id} 对局结束，全员返回等待房`);
     sendWaiting(room);
     broadcastLobby();
   }
 
-  rooms.set('test',{id:'test',members:[],game:null,dlcEnabled:false,testRoom:true,chatLog:[],botTimer:null,gameOverTimer:null});
+  rooms.set('test',{id:'test',members:[],game:null,dlcEnabled:false,testRoom:true,chatLog:[],botTimer:null,gameOverTimer:null,turnTimer:null});
 
   function readCookie(header, name) {
     const cookies = String(header || '').split(';');
@@ -100,6 +109,11 @@ function createMachiServer(options = {}) {
       res.end(JSON.stringify({ ok: true }));
       return;
     }
+    if (requestUrl.pathname === '/api/catalog') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
+      res.end(JSON.stringify({ cards: CARDS, landmarks: LANDMARKS, sixCards: SIX_CARDS }));
+      return;
+    }
 
     let pathname;
     try {
@@ -112,7 +126,7 @@ function createMachiServer(options = {}) {
 
     // 仅公开DLC目录内的静态展示文件，不暴露运行时代码。
     const isDlc = pathname.startsWith('/dlc1/');
-    if (isDlc && !(/^\/dlc1\/assets\/cards\/[a-zA-Z]+\.png$/.test(pathname) || pathname === '/dlc1/catalog.js')) {
+    if (isDlc && !(/^\/dlc1\/assets\/cards\/[a-zA-Z0-9-]+\.(png|webp|jpg)$/.test(pathname) || pathname === '/dlc1/catalog.js')) {
       res.writeHead(404); res.end('Not Found'); return;
     }
     const root = isDlc ? path.join(__dirname,'dlc1') : publicDir;
@@ -133,6 +147,7 @@ function createMachiServer(options = {}) {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
     };
     fs.readFile(filePath, (readError, data) => {
       if (readError) {
@@ -140,13 +155,29 @@ function createMachiServer(options = {}) {
         res.end(readError.code === 'ENOENT' ? 'Not Found' : 'Server Error');
         return;
       }
-      res.writeHead(200, { 'Content-Type': mime[path.extname(filePath)] || 'application/octet-stream' });
+      const isImageAsset = pathname.startsWith('/assets/') || pathname.startsWith('/dlc1/assets/');
+      res.writeHead(200, {
+        'Content-Type': mime[path.extname(filePath)] || 'application/octet-stream',
+        'Cache-Control': isImageAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
       res.end(data);
     });
   }
 
   const server = http.createServer(serveStatic);
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
+  wss.on('close', () => {
+    for (const room of rooms.values()) {
+      clearTurnTimer(room);
+      if (room.botTimer) clearTimeout(room.botTimer);
+      if (room.gameOverTimer) clearTimeout(room.gameOverTimer);
+      if (room.taskTimer) clearTimeout(room.taskTimer);
+      room.botTimer = null;
+      room.gameOverTimer = null;
+      room.taskTimer = null;
+    }
+  });
 
   function send(ws, payload) {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
@@ -188,6 +219,7 @@ function createMachiServer(options = {}) {
   function broadcastGame(room) {
     if (!room.game) return;
     const g=room.game, p=g.players[g.current];
+    if (Array.isArray(g.log) && g.log.length > 500) g.log.splice(0, g.log.length - 500);
     const shopQuotes={buy:{},build:{}};
     for(const id of Object.keys(g.cardPool))shopQuotes.buy[id]=D.quote(g,p,'buy',id,CARDS[id].cost);
     for(const id of Object.keys(LANDMARKS))shopQuotes.build[id]=D.quote(g,p,'build',id,LANDMARKS[id].cost);
@@ -205,6 +237,7 @@ function createMachiServer(options = {}) {
       room.gameOverTimer.unref?.();
     }
     scheduleBotDrive(room);
+    scheduleTurnTimer(room);
   }
 
   function sendWaiting(room) {
@@ -561,6 +594,11 @@ function createMachiServer(options = {}) {
         return;
       }
 
+      if (isAuthRateLimited(ws, msg)) {
+        send(ws, { type: 'authError', code: 'RATE_LIMITED', msg: '尝试过于频繁，请稍后再试' });
+        return;
+      }
+
       let identity;
       const authenticatedDeviceId = ws.serverDeviceId || sanitizeDeviceId(msg.deviceId);
       if (msg.type === 'register') {
@@ -591,6 +629,22 @@ function createMachiServer(options = {}) {
         msg: authError.message || '登录失败',
       });
     }
+  }
+
+  function authAttemptKey(ws, msg) {
+    return ws.serverDeviceId || String(msg.deviceId || '') || ws._socket?.remoteAddress || 'unknown';
+  }
+
+  function isAuthRateLimited(ws, msg) {
+    const key = authAttemptKey(ws, msg);
+    const now = Date.now();
+    const entry = authAttempts.get(key);
+    if (!entry || entry.resetAt <= now) {
+      authAttempts.set(key, { count: 1, resetAt: now + authWindowMs });
+      return false;
+    }
+    entry.count += 1;
+    return entry.count > authMaxAttempts;
   }
 
   function handleJoinRoom(ws, msg) {
@@ -656,7 +710,7 @@ function createMachiServer(options = {}) {
       if (!room.members[i].isSpectator && !room.members[i].isBot) insertIndex = i + 1;
     }
     room.members.splice(insertIndex, 0, member);
-    if (insertIndex === 0 && room.members.length > 1) reindexWaitingRoom(room);
+    reindexWaitingRoom(room);
     console.log(`[join] 房间 ${room.id}，${member.name}，当前人数 ${participantCount + 1}`);
     attachToMember(ws, room, member, false);
   }
@@ -793,6 +847,100 @@ function createMachiServer(options = {}) {
       driveBotTurn(room);
     }, botDelay());
     room.botTimer.unref?.();
+  }
+
+  function clearTurnTimer(room) {
+    if (room.turnTimer) {
+      clearTimeout(room.turnTimer);
+      room.turnTimer = null;
+    }
+  }
+
+  function currentParticipant(room) {
+    const game = room.game;
+    if (!game) return null;
+    return room.members.find(member => !member.isSpectator && member.playerId === game.current) || null;
+  }
+
+  function scheduleTurnTimer(room) {
+    clearTurnTimer(room);
+    const game = room.game;
+    if (!game || game.gameOver || game.dlc?.selecting) return;
+    const member = currentParticipant(room);
+    if (!member || member.isBot) return;
+    const delay = member.connected === false ? disconnectedTurnTimeoutMs : turnTimeoutMs;
+    room.turnTimer = setTimeout(() => {
+      room.turnTimer = null;
+      autoPlayTurn(room);
+    }, delay);
+    room.turnTimer.unref?.();
+  }
+
+  function pushEvents(game, events) {
+    if (!events || !events.length) return;
+    game.log.push(...events.map(text => ({ text, turn: game.turnNumber })));
+  }
+
+  // 超时/掉线托管：按普通难度替当前玩家完成这一回合，避免对局卡死。
+  function autoPlayTurn(room) {
+    const game = room.game;
+    if (!game || game.gameOver || game.dlc?.selecting) return;
+    const member = currentParticipant(room);
+    if (!member || member.isBot) return;
+    const player = game.players[game.current];
+    const difficulty = 'normal';
+    let steps = 0;
+    while (steps < 24 && room.game === game && !game.gameOver && !game.dlc?.selecting) {
+      steps += 1;
+      if (game.pendingChoice) {
+        const choice = B.decideChoice(game, player, difficulty);
+        const result = choice ? E.handleChoice(game, player.id, choice) : null;
+        if (!result || !result.ok) {
+          if (!game.settled && game.dice) {
+            const settled = E.settle(game, player.id, game.dice.sum);
+            pushEvents(game, settled.events);
+            game.settled = true;
+          }
+          game.pendingChoice = null;
+        } else {
+          pushEvents(game, result.events);
+          game.pendingChoice = result.needChoice || null;
+        }
+        continue;
+      }
+      if (!game.dice) {
+        const count = B.decideRollCount(game, player, difficulty);
+        game.dice = { ...E.rollDice(count), firstCount: count };
+        game.rerolled = false;
+        game.settled = false;
+        if (E.canReroll(game, player)) {
+          game.pendingChoice = { type: 'askReroll', rollerId: player.id };
+        } else {
+          const result = E.settle(game, player.id, game.dice.sum);
+          pushEvents(game, result.events);
+          game.settled = true;
+          if (result.needChoice) game.pendingChoice = result.needChoice;
+        }
+        continue;
+      }
+      if (!game.settled) break;
+      if (game.dlc && player.dlc?.role === 4) D.useRole(game, player);
+      if (!game.boughtThisTurn) {
+        const buy = B.decideBuy(game, player, difficulty);
+        if (buy && E.canBuy(game, buy.cardId, buy.source).ok) E.buyCard(game, buy.cardId, buy.source);
+      }
+      if (!game.builtThisTurn) {
+        const build = B.decideBuild(game, player, difficulty);
+        if (build && E.canBuild(game, build.landmarkId, build.source).ok) E.buildLandmark(game, build.landmarkId, build.source);
+      }
+      if (game.pendingChoice) continue;
+      if (E.isWin(player) || game.gameOver) break;
+      const ended = E.endTurn(game);
+      // 只有广播中心给的额外回合才继续托管；单人房间 current 会绕回自己，不能靠 current 判断。
+      if (ended.gameOver || !ended.extraTurn || game.gameOver) break;
+    }
+    console.log(`[turn] 房间 ${room.id}：${player.name} 超时未操作，已自动完成回合`);
+    broadcastGame(room);
   }
 
   function driveBotTurn(room) {
@@ -937,6 +1085,7 @@ function createMachiServer(options = {}) {
     send(ws, { type: 'hello' });
 
     ws.on('message', raw => {
+      try {
       let msg;
       try {
         msg = JSON.parse(raw.toString());
@@ -1104,6 +1253,10 @@ function createMachiServer(options = {}) {
       if (['roll', 'choice', 'buy', 'build', 'endTurn', 'chooseTask', 'chooseRole', 'useRole'].includes(msg.type)) {
         handleGameAction(ws, msg);
       }
+      } catch (messageError) {
+        console.error(`[ws] 消息处理异常：${messageError.stack || messageError.message}`);
+        sendError(ws, '服务器处理消息失败', 'INTERNAL_ERROR');
+      }
     });
 
     ws.on('close', () => disconnectFromRoom(ws));
@@ -1114,6 +1267,9 @@ function createMachiServer(options = {}) {
     const now = Date.now();
     for (const [token, session] of sessions) {
       if (session.expiresAt <= now) sessions.delete(token);
+    }
+    for (const [key, entry] of authAttempts) {
+      if (entry.resetAt <= now) authAttempts.delete(key);
     }
   }, 60 * 60 * 1000);
   cleanupSessions.unref?.();

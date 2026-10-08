@@ -116,6 +116,7 @@ test('直接按期望决定：双骰期望高选双骰，单骰期望高选单�
   p1.landmarks.train = true;
   p1.cards.dairy = 1;
   p1.cards.ranch = 2;
+  g1.players.forEach(player => { player.landmarks.train = true; });
   for (const difficulty of ['easy', 'normal', 'hard']) {
     assert.equal(B.decideRollCount(g1, p1, difficulty, alwaysDirect), 2, `${difficulty} 直接按期望应选双骰`);
   }
@@ -152,6 +153,7 @@ test('期望加权选择：双骰期望高时选双骰概率过半，且难度�
   p.landmarks.train = true;
   p.cards.dairy = 1;
   p.cards.ranch = 2;
+  g.players.forEach(player => { player.landmarks.train = true; });
   const easyRate = rollTwoRate(g, p, 'easy');
   const normalRate = rollTwoRate(g, p, 'normal');
   const hardRate = rollTwoRate(g, p, 'hard');

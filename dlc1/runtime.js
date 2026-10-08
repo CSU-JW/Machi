@@ -130,7 +130,8 @@ function useRole(g,p) {
 function end(g,p,extra) {
   if(!g.dlc)return;
   const d=p.dlc;
-  if(d.serviceLeft>0&&d.ownTurn>=d.serviceReady){p.money++;d.serviceLeft--;add(g,`${p.name} 便民服务 +1（剩余${d.serviceLeft}次）`);}
+  // 广播中心的额外回合属于基础回合的延续：只在基础回合真正结束时结算一次便民服务。
+  if(!extra&&d.serviceLeft>0&&d.ownTurn>=d.serviceReady){p.money++;d.serviceLeft--;add(g,`${p.name} 便民服务 +1（剩余${d.serviceLeft}次）`);}
   if(!extra&&g.current===0)nextEvent(g);
   g.dlc.extra=extra;
   g.players[g.current].dlc.ownTurn++;

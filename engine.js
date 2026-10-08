@@ -2,6 +2,7 @@
 const { CARDS, LANDMARKS, UNIQUE_CARDS, SIX_CARDS, createCardPool } = require('./cards');
 const crypto = require('crypto');
 const D = require('./dlc1/runtime');
+const LOG_LIMIT = 500;
 
 // ---------- 初始化 ----------
 function createGame(playerNames, options = {}) {
@@ -48,10 +49,12 @@ function createGame(playerNames, options = {}) {
 // ---------- 工具 ----------
 function log(g, text) {
   g.log.push({ text, turn: g.turnNumber });
+  if (g.log.length > LOG_LIMIT) g.log.splice(0, g.log.length - LOG_LIMIT);
 }
 function playerHasLandmark(p, id) { return p.landmarks[id] === true; }
 function playerHasCard(p, id) { return (p.cards[id] || 0) > 0; }
 function cardCount(p, id) { return p.cards[id] || 0; }
+function hasKey(object, key) { return Object.prototype.hasOwnProperty.call(object, key); }
 
 function bonusFor(p, cardId) {
   const hasMall = playerHasLandmark(p, 'mallC');
@@ -285,8 +288,8 @@ function handleChoice(g, rollerId, choice) {
     if (!target) return { ok:false, error:'无效目标' };
     const myCardId = choice.myCardId;
     const targetCardId = choice.targetCardId;
-    if (!roller.cards[myCardId] || roller.cards[myCardId] <= 0 || SIX_CARDS.includes(myCardId)) return { ok:false, error:'你选择的自己的卡无效' };
-    if (!target.cards[targetCardId] || target.cards[targetCardId] <= 0 || SIX_CARDS.includes(targetCardId)) return { ok:false, error:'你选择的对方的卡无效' };
+    if (!hasKey(roller.cards, myCardId) || roller.cards[myCardId] <= 0 || SIX_CARDS.includes(myCardId)) return { ok:false, error:'你选择的自己的卡无效' };
+    if (!hasKey(target.cards, targetCardId) || target.cards[targetCardId] <= 0 || SIX_CARDS.includes(targetCardId)) return { ok:false, error:'你选择的对方的卡无效' };
     roller.cards[myCardId] -= 1;
     target.cards[myCardId] = (target.cards[myCardId] || 0) + 1;
     target.cards[targetCardId] -= 1;
@@ -307,8 +310,8 @@ function nextSixChoice(g, rollerId, after, events) {
 // ---------- 购买 ----------
 function canBuy(g, cardId, source = 'none') {
   const p = g.players[g.current];
+  if (!hasKey(CARDS, cardId)) return { ok:false, reason:'无此卡' };
   const card = CARDS[cardId];
-  if (!card) return { ok:false, reason:'无此卡' };
   if (g.gameOver || g.dlc?.selecting) return {ok:false,reason:'当前不能购买'};
   if (card.dlc && !g.dlcEnabled) return {ok:false,reason:'本房间未开启DLC'};
   if (g.pendingChoice) return { ok:false, reason:'还有选择未完成' };
@@ -343,8 +346,8 @@ function buyCard(g, cardId, source = 'none') {
 // ---------- 建设 ----------
 function canBuild(g, landmarkId, source = 'none') {
   const p = g.players[g.current];
+  if (!hasKey(LANDMARKS, landmarkId)) return { ok:false, reason:'无此地标' };
   const lm = LANDMARKS[landmarkId];
-  if (!lm) return { ok:false, reason:'无此地标' };
   if (g.gameOver || g.dlc?.selecting) return {ok:false,reason:'当前不能建设'};
   if (g.pendingChoice) return { ok:false, reason:'还有选择未完成' };
   if (!g.settled) return { ok:false, reason:'尚未结算' };

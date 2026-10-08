@@ -265,7 +265,7 @@ test('原版房间创建可关闭DLC，静态新卡可加载且运行时代码�
   const f=await createFixture(t),c=await f.client();await guest(c,'建房玩家','create_dlc_device_000001');
   c.send({type:'createRoom',dlcEnabled:false});const created=await c.waitFor('roomCreated');assert.equal(f.app.rooms.get(created.roomId).dlcEnabled,false);
   const base=`http://127.0.0.1:${f.app.server.address().port}`;
-  for(const url of ['/dlc1/catalog.js','/dlc1/assets/cards/museum.png'])assert.equal((await fetch(base+url)).status,200);
+    for(const url of ['/dlc1/catalog.js','/dlc1/assets/cards/museum-512.webp'])assert.equal((await fetch(base+url)).status,200);
   assert.equal((await fetch(base+'/dlc1/runtime.js')).status,404);
 });
 
@@ -809,4 +809,86 @@ test('等待房满员后新玩家自动进入观战席，界面数据与正常�
   const room = lobby.rooms.find(r => r.id === roomId);
   assert.equal(room.playerCount, 4);
   assert.equal(room.spectatorCount, 1);
+});
+
+test('回合超时会自动托管，挂机玩家不会卡死对局', async t => {
+  const fixture = await createFixture(t, { turnTimeoutMs: 120, disconnectedTurnTimeoutMs: 60, botTurnDelayMs: 40, botJitterMs: 10 });
+  const a = await fixture.client();
+  const b = await fixture.client();
+  await guest(a, '挂机甲', 'timeout_dev_000000001');
+  await guest(b, '挂机乙', 'timeout_dev_000000002');
+  a.send({ type: 'createRoom' });
+  const created = await a.waitFor('roomCreated');
+  a.send({ type: 'joinRoom', roomId: created.roomId });
+  await a.waitFor('roomJoined');
+  b.send({ type: 'joinRoom', roomId: created.roomId });
+  await b.waitFor('roomJoined');
+  await a.waitFor('waiting', m => m.players.length === 2);
+  a.send({ type: 'startGame' });
+  const first = await a.waitFor('state', m => m.game && m.game.turnNumber === 1);
+  assert.equal(first.game.current, 0);
+  const advanced = await a.waitFor('state', m => m.game && m.game.turnNumber >= 2, 4000);
+  assert.ok(advanced.game.turnNumber >= 2);
+  const room = fixture.app.rooms.get(created.roomId);
+  assert.ok(room.game.turnNumber >= 2);
+});
+
+test('当前玩家掉线后由托管继续推进对局', async t => {
+  const fixture = await createFixture(t, { turnTimeoutMs: 5000, disconnectedTurnTimeoutMs: 80, botTurnDelayMs: 40, botJitterMs: 10 });
+  const a = await fixture.client();
+  const b = await fixture.client();
+  await guest(a, '掉线甲', 'drop_dev_00000000001');
+  await guest(b, '留守乙', 'drop_dev_00000000002');
+  a.send({ type: 'createRoom' });
+  const created = await a.waitFor('roomCreated');
+  a.send({ type: 'joinRoom', roomId: created.roomId });
+  await a.waitFor('roomJoined');
+  b.send({ type: 'joinRoom', roomId: created.roomId });
+  await b.waitFor('roomJoined');
+  await a.waitFor('waiting', m => m.players.length === 2);
+  a.send({ type: 'startGame' });
+  await a.waitFor('state', m => m.game && m.game.turnNumber === 1);
+  a.close();
+  const advanced = await b.waitFor('state', m => m.game && m.game.turnNumber >= 2, 4000);
+  assert.ok(advanced.game.turnNumber >= 2);
+});
+
+test('同一设备的登录尝试会被限流', async t => {
+  const fixture = await createFixture(t, { authMaxAttempts: 3, authWindowMs: 60_000 });
+  const deviceId = 'ratelimit_device_01';
+  for (let index = 0; index < 3; index += 1) {
+    const client = await fixture.client();
+    client.send({ type: 'guestLogin', nickname: '限流', deviceId });
+    await client.waitFor('authenticated');
+  }
+  const blocked = await fixture.client();
+  blocked.send({ type: 'guestLogin', nickname: '限流', deviceId });
+  const error = await blocked.waitFor('authError');
+  assert.equal(error.code, 'RATE_LIMITED');
+});
+
+test('带人机房再加入真人后，人机仍可被移除', async t => {
+  const fixture = await createFixture(t);
+  const host = await fixture.client();
+  const second = await fixture.client();
+  await guest(host, '房主', 'reindex_dev_00000001');
+  await guest(second, '后来者', 'reindex_dev_00000002');
+  host.send({ type: 'createRoom', dlcEnabled: false });
+  const created = await host.waitFor('roomCreated');
+  host.send({ type: 'joinRoom', roomId: created.roomId });
+  await host.waitFor('roomJoined');
+  await host.waitFor('chatHistory');
+  host.send({ type: 'addBot', difficulty: 'easy' });
+  const withBot = await host.waitFor('waiting', m => m.players.some(player => player.bot));
+  assert.equal(withBot.players.filter(player => !player.bot).length, 1);
+
+  second.send({ type: 'joinRoom', roomId: created.roomId });
+  await second.waitFor('roomJoined');
+  const waiting = await host.waitFor('waiting', m => m.players.length === 3);
+  assert.equal(waiting.players.filter(player => !player.bot).length, 2);
+
+  const bot = waiting.players.find(player => player.bot);
+  host.send({ type: 'removeBot', playerId: bot.id });
+  const after = await host.waitFor('waiting', m => m.players.length === 2 && !m.players.some(player => player.bot));
+  assert.equal(after.players.length, 2);
 });

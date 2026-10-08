@@ -8,3 +8,4 @@ test/.tmp-*/
 .pip-log*.txt
 .layout-*.png
 public/.layout-test.html
+assets-src/
